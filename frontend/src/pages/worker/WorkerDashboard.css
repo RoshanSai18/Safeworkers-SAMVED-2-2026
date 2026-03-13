@@ -1,0 +1,866 @@
+﻿/* 
+   WORKER DASHBOARD — Light card on dark page
+   Neon green for UI chrome, semantic colors for safety.
+ */
+
+:root {
+    /* Page background — stays dark */
+    --wd-bg:       #0a0a0a;
+    /* Card / panel backgrounds — light */
+    --wd-panel:    #ffffff;         /* card background       */
+    --wd-panel2:   #f2f2f7;         /* iOS light grouped bg  */
+    --wd-panel3:   #e5e5ea;         /* iOS elevated surface  */
+    /* Borders */
+    --wd-sep:      rgba(0,0,0,.1);  /* iOS light separator   */
+    --wd-sep2:     rgba(0,0,0,.18);
+    /* Text — dark on light */
+    --wd-txt:      #1c1c1e;
+    --wd-txt2:     rgba(60,60,67,.7);  /* iOS secondary label  */
+    --wd-txt3:     rgba(60,60,67,.4);  /* iOS tertiary label   */
+    /* Neon green for UI chrome elements */
+    --wd-neon:     #00ff88;
+    /* Safety-semantic (indicators only) */
+    --wd-safe:     #30d158;
+    --wd-amber:    #ff9f0a;
+    --wd-red:      #ff3b30;
+    /* Font */
+    --wd-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Helvetica Neue', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
+
+.wd-root {
+    min-height: 100dvh;
+    background: var(--wd-bg);
+    background-image: radial-gradient(ellipse at 30% 20%, rgba(255,255,255,.025) 0%, transparent 60%),
+                      radial-gradient(ellipse at 70% 80%, rgba(255,255,255,.015) 0%, transparent 55%);
+    color: var(--wd-txt);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--wd-font);
+    padding: 48px 20px;
+}
+
+/* Centered card — light */
+.wd-card {
+    width: 640px;
+    max-width: 100%;
+    background: var(--wd-panel);
+    border: 1px solid rgba(0,0,0,.08);
+    border-radius: 28px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow:
+        0 2px 8px rgba(0,0,0,.12),
+        0 16px 48px rgba(0,0,0,.35),
+        0 48px 120px rgba(0,0,0,.6);
+    position: relative;
+}
+
+/*  HEADER  */
+.wd-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 28px;
+    background: var(--wd-panel);
+    border-bottom: 1px solid var(--wd-sep);
+    gap: 10px;
+}
+.wd-header-left  { display: flex; align-items: center; gap: 12px; }
+.wd-header-right { display: flex; align-items: center; gap: 10px; }
+
+.wd-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--wd-panel3);
+    border: 1.5px solid var(--wd-sep2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 700; color: var(--wd-txt);
+    flex-shrink: 0;
+}
+.wd-name  { font-size: 15px; font-weight: 700; color: var(--wd-txt); letter-spacing: -.01em; }
+.wd-shift { font-size: 11px; color: var(--wd-txt3); display: flex; align-items: center; gap: 4px; margin-top: 1px; }
+
+/* Duty toggle — neutral pill, iOS-inspired */
+.wd-duty-toggle {
+    display: flex; align-items: center; gap: 8px;
+    height: 34px; border-radius: 999px;
+    padding: 4px 14px 4px 5px;
+    border: 1px solid var(--wd-sep2);
+    font-size: 11px; font-weight: 700; letter-spacing: .05em;
+    cursor: pointer; transition: all .2s;
+    user-select: none;
+}
+.wd-duty-toggle.on-duty {
+    background: #34c759; border-color: #34c759; color: #fff;
+}
+.wd-duty-toggle.idle {
+    background: transparent; border-color: var(--wd-sep); color: var(--wd-txt3);
+}
+.wd-duty-thumb {
+    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    transition: background .2s;
+}
+.wd-duty-toggle.on-duty  .wd-duty-thumb { background: #fff; }
+.wd-duty-toggle.idle     .wd-duty-thumb { background: var(--wd-txt3); }
+.wd-duty-label { font-size: 11px; font-weight: 700; }
+
+.wd-logout-btn {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: var(--wd-panel2); border: 1px solid var(--wd-sep);
+    color: var(--wd-txt3); display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all .15s; flex-shrink: 0;
+}
+.wd-logout-btn:hover { background: var(--wd-panel3); color: var(--wd-txt); }
+
+/*  MAIN  */
+.wd-main {
+    flex: 1; display: flex; flex-direction: column;
+    padding: 32px 32px 40px;
+    gap: 20px;
+}
+
+/*  PRIMARY BUTTON — trust blue  */
+.wd-btn-primary {
+    width: 100%; min-height: 64px;
+    background: #0a84ff; color: #fff;
+    border: none; border-radius: 16px;
+    font-size: 17px; font-weight: 700; font-family: var(--wd-font);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    cursor: pointer; letter-spacing: -.01em;
+    transition: opacity .15s, transform .15s;
+}
+.wd-btn-primary:hover  { opacity: .88; transform: scale(1.01); }
+.wd-btn-primary:active { opacity: .75; transform: scale(.98); }
+
+/* Start button (slightly larger) */
+.wd-btn-start { font-size: 18px; min-height: 72px; border-radius: 18px; }
+
+/* Secondary / ghost button */
+.wd-btn-secondary {
+    width: 100%; min-height: 58px;
+    background: var(--wd-panel2); color: var(--wd-txt);
+    border: 1px solid var(--wd-sep2); border-radius: 16px;
+    font-size: 16px; font-weight: 600; font-family: var(--wd-font);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    cursor: pointer; transition: background .15s, transform .15s;
+}
+.wd-btn-secondary:hover { background: var(--wd-panel3); transform: scale(1.01); }
+/* Extra breathing room between Begin Checklist and Report Hazard on the dashboard */
+.wd-dashboard > .wd-btn-secondary { margin-top: 8px; }
+
+.wd-btn-back {
+    background: none; border: none; color: var(--wd-txt3);
+    font-size: 14px; font-family: var(--wd-font);
+    cursor: pointer; padding: 8px; align-self: flex-start;
+    transition: color .15s;
+}
+.wd-btn-back:hover { color: var(--wd-txt); }
+
+/*  DASHBOARD  */
+.wd-dashboard { display: flex; flex-direction: column; gap: 20px; }
+
+/* Job hero card — dark panel with colored left-border accent */
+.wd-job-hero {
+    background: var(--wd-panel2);
+    border: 1px solid var(--wd-sep);
+    border-radius: 22px; padding: 28px 26px;
+    display: flex; flex-direction: column; gap: 13px;
+    position: relative; overflow: hidden;
+}
+/* Coloured accent stripe on the left edge (safety-semantic only) */
+.wd-job-hero::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    border-radius: 22px 0 0 22px;
+}
+.wd-job-hero.risk-high::before   { background: var(--wd-red); }
+.wd-job-hero.risk-medium::before { background: var(--wd-amber); }
+.wd-job-hero.risk-low::before    { background: var(--wd-safe); }
+
+.wd-job-risk-badge {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 18px; font-weight: 800; letter-spacing: .03em;
+}
+.risk-high   .wd-job-risk-badge { color: var(--wd-red); }
+.risk-medium .wd-job-risk-badge { color: var(--wd-amber); }
+.risk-low    .wd-job-risk-badge { color: var(--wd-safe); }
+
+.wd-job-id-badge {
+    display: inline-block;
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; font-variant-numeric: tabular-nums;
+    padding: 3px 10px; border-radius: 999px;
+    background: var(--wd-panel2); color: rgba(0,0,0,.65); border: 1px solid rgba(0,0,0,.18);
+    align-self: flex-start;
+}
+.wd-job-address  { font-size: 26px; font-weight: 800; color: var(--wd-txt); line-height: 1.15; letter-spacing: -.02em; }
+.wd-job-zone     { font-size: 13px; color: rgba(0,0,0,.62); }
+.wd-job-meta-row { font-size: 13px; color: rgba(0,0,0,.62); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wd-job-super    { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(0,0,0,.62); margin-top: 2px; }
+.wd-meta-item    { display: inline-flex; align-items: center; gap: 4px; }
+.wd-meta-dot     { color: rgba(0,0,0,.3); }
+
+/*  PRE-ENTRY  */
+.wd-preentry { display: flex; flex-direction: column; gap: 18px; }
+.wd-gate-heading { font-size: 26px; font-weight: 800; color: var(--wd-txt); letter-spacing: -.02em; }
+.wd-gate-sub { font-size: 14px; color: var(--wd-txt3); margin-top: -10px; }
+
+/* Check card — iOS grouped cell style */
+.wd-check-card {
+    background: var(--wd-panel2);
+    border: 1px solid var(--wd-sep);
+    border-radius: 18px; padding: 20px 18px;
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    transition: border-color .2s, background .2s;
+}
+.wd-check-card.done {
+    border-color: var(--wd-neon);
+    background: rgba(0,255,136,.06);
+}
+
+.wd-check-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+
+.wd-check-dot {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--wd-panel2); border: 1.5px solid var(--wd-sep2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 800; color: var(--wd-txt3);
+    flex-shrink: 0;
+}
+/* Done state — neon green */
+.wd-check-card.done .wd-check-dot {
+    background: var(--wd-neon); border-color: var(--wd-neon); color: #000;
+}
+
+.wd-check-title { font-size: 15px; font-weight: 700; color: var(--wd-txt); }
+.wd-check-desc  { font-size: 12px; color: var(--wd-txt3); margin-top: 2px; line-height: 1.4; }
+
+.wd-check-btn {
+    min-height: 48px; min-width: 96px;
+    background: var(--wd-panel3); border: 1px solid var(--wd-sep2); border-radius: 14px;
+    color: var(--wd-txt); font-size: 14px; font-weight: 700; font-family: var(--wd-font);
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    cursor: pointer; flex-shrink: 0; transition: background .15s;
+}
+.wd-check-btn:hover { background: rgba(0,0,0,.07); }
+
+.wd-check-tick { color: var(--wd-txt); flex-shrink: 0; }
+
+/* Swipe-to-Confirm — neon green thumb */
+.swipe-track {
+    position: relative; width: 100%; height: 62px;
+    background: var(--wd-panel2); border: 1px solid var(--wd-sep);
+    border-radius: 999px; overflow: hidden;
+    cursor: grab; user-select: none; touch-action: none;
+    display: flex; align-items: center;
+}
+.swipe-track.swipe-confirmed {
+    background: rgba(0,255,136,.08); border-color: var(--wd-neon);
+}
+/* When last scan came back blocked — tint track red to hint retry */
+.wd-check-card.blocked ~ .swipe-track,
+.swipe-track.swipe-retry {
+    border-color: var(--wd-red);
+    background: rgba(255,59,48,0.05);
+}
+.swipe-track.swipe-retry .swipe-thumb {
+    background: var(--wd-red);
+    box-shadow: 0 2px 12px rgba(255,59,48,.4);
+}
+.swipe-track.swipe-retry .swipe-fill {
+    background: rgba(255,59,48,.12);
+}
+.swipe-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: rgba(0,255,136,.15); border-radius: 999px;
+    pointer-events: none; transition: width .05s;
+}
+.swipe-thumb {
+    position: absolute; left: 4px;
+    width: 54px; height: 54px; border-radius: 50%;
+    background: var(--wd-neon); color: #000;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px rgba(0,255,136,.35);
+    transition: transform .05s;
+    z-index: 2; flex-shrink: 0;
+}
+.swipe-thumb.dragging { cursor: grabbing; box-shadow: 0 4px 20px rgba(0,255,136,.5); }
+.swipe-label {
+    position: absolute; right: 0; left: 66px;
+    text-align: center; font-size: 13px; font-weight: 700;
+    color: var(--wd-txt3); letter-spacing: .02em; pointer-events: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 12px;
+}
+.swipe-confirmed .swipe-label { color: var(--wd-txt2); }
+
+/* Enter button — solid white when unlocked / muted when locked */
+.wd-btn-enter {
+    width: 100%; min-height: 72px;
+    border: none; border-radius: 18px;
+    font-size: 19px; font-weight: 800; font-family: var(--wd-font);
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    cursor: pointer; letter-spacing: -.01em;
+    transition: all .2s;
+}
+.wd-btn-enter.unlocked {
+    background: var(--wd-neon); color: #000;
+    box-shadow: 0 4px 20px rgba(0,255,136,.3);
+}
+.wd-btn-enter.unlocked:hover  { opacity: .88; transform: scale(1.01); }
+.wd-btn-enter.unlocked:active { opacity: .75; transform: scale(.98); }
+.wd-btn-enter.locked {
+    background: var(--wd-panel2); color: var(--wd-txt3);
+    border: 1px solid var(--wd-sep); cursor: not-allowed;
+}
+
+/*  IN MANHOLE  */
+.wd-inmanhole {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 28px; padding-top: 12px;
+}
+/* Status pill — neutral by default, semantic only for warn/sos */
+.wd-status-pill {
+    padding: 7px 22px; border-radius: 999px;
+    font-size: 12px; font-weight: 800; letter-spacing: .1em;
+    background: var(--wd-panel2); color: var(--wd-txt2);
+    border: 1px solid var(--wd-sep2);
+}
+.wd-status-pill.pill-warn {
+    background: rgba(255,159,10,.1); color: var(--wd-amber);
+    border-color: rgba(255,159,10,.3);
+    animation: blink-warn 1.4s ease-in-out infinite;
+}
+.wd-status-pill.pill-sos {
+    background: rgba(255,59,48,.12); color: var(--wd-red);
+    border-color: rgba(255,59,48,.4);
+    animation: blink-warn .7s ease-in-out infinite;
+}
+@keyframes blink-warn { 0%,100%{opacity:1}50%{opacity:.4} }
+
+/* Countdown clock */
+.wd-clock-wrap {
+    position: relative; width: 260px; height: 260px;
+    display: flex; align-items: center; justify-content: center;
+}
+.wd-clock-svg    { position: absolute; inset: 0; width: 100%; height: 100%; }
+.wd-ring-track   { fill: none; stroke: #d1d1d6; stroke-width: 11; }
+.wd-ring-fill    {
+    fill: none; stroke-width: 11; stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear, stroke .5s;
+}
+.wd-ring-fill.ring-flash { animation: ring-flash .55s ease-in-out infinite; }
+@keyframes ring-flash { 0%,100%{opacity:1}50%{opacity:.28} }
+
+.wd-clock-inner {
+    position: relative; z-index: 1; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.wd-clock-label  { font-size: 11px; font-weight: 700; letter-spacing: .14em; color: var(--wd-txt3); text-transform: uppercase; }
+.wd-clock-digits { font-size: 54px; font-weight: 800; line-height: 1; letter-spacing: -3px; transition: color .4s; }
+.wd-clock-total  { font-size: 12px; color: var(--wd-txt3); }
+
+.wd-inmanhole-job { font-size: 13px; color: var(--wd-txt3); text-align: center; }
+
+/* Exit button — semantic red (it is a safety action) */
+.wd-btn-exit {
+    width: 100%; min-height: 72px;
+    background: var(--wd-red); color: #fff;
+    border: none; border-radius: 18px;
+    font-size: 20px; font-weight: 800; font-family: var(--wd-font);
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    cursor: pointer; letter-spacing: .01em;
+    transition: opacity .15s, transform .15s;
+}
+.wd-btn-exit:hover  { opacity: .88; transform: scale(1.01); }
+.wd-btn-exit:active { opacity: .75; transform: scale(.97); }
+
+/* Report Hazard — neutral ghost */
+.wd-btn-report-hazard {
+    width: 100%; min-height: 56px;
+    background: var(--wd-panel2); color: var(--wd-txt2);
+    border: 1px solid var(--wd-sep2); border-radius: 16px;
+    font-size: 15px; font-weight: 700; font-family: var(--wd-font);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    cursor: pointer; transition: background .15s;
+}
+.wd-btn-report-hazard:hover { background: var(--wd-panel3); }
+
+/*  EXITED  */
+.wd-exited {
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; gap: 26px; padding-top: 12px;
+}
+.wd-exited-title { font-size: 34px; font-weight: 800; color: var(--wd-txt); letter-spacing: -.02em; }
+.wd-exited-sub   { font-size: 14px; color: var(--wd-txt3); max-width: 300px; line-height: 1.5; }
+
+.wd-summary {
+    width: 100%; background: var(--wd-panel2);
+    border: 1px solid var(--wd-sep); border-radius: 18px; padding: 4px 0;
+}
+.wd-summary-row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 14px; color: var(--wd-txt3); padding: 13px 16px;
+    border-bottom: 1px solid var(--wd-sep);
+}
+.wd-summary-row:last-child { border-bottom: none; }
+.wd-summary-row strong { color: var(--wd-txt); font-weight: 700; }
+
+/*  SOS FAB — semantic red, always  */
+.sos-fab {
+    position: fixed; bottom: 24px; right: 20px; z-index: 300;
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--wd-red); border: none;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    cursor: pointer;
+    animation: fab-pulse 2.4s ease-in-out infinite;
+    touch-action: none; user-select: none;
+    transition: transform .1s;
+    box-shadow: 0 4px 16px rgba(255,59,48,.4);
+}
+.sos-fab:active, .sos-fab.holding { transform: scale(1.1); }
+@keyframes fab-pulse {
+    0%,100% { box-shadow: 0 4px 16px rgba(255,59,48,.4), 0 0 0 0 rgba(255,59,48,.5); }
+    50%      { box-shadow: 0 4px 16px rgba(255,59,48,.4), 0 0 0 13px rgba(255,59,48,0); }
+}
+.sos-fab-ring { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.sos-fab-track { fill: none; stroke: rgba(255,255,255,.2); stroke-width: 3; }
+.sos-fab-arc   { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset .03s linear; }
+.sos-fab-text  { font-size: 16px; font-weight: 900; letter-spacing: .06em; color: #fff; position: relative; z-index: 1; }
+.sos-fab-pct {
+    position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; font-weight: 800; color: var(--wd-red); white-space: nowrap;
+}
+
+/*  OVERLAYS  */
+.wd-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,.88); backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+
+/* SOS sent modal — semantic red (emergency, keep) */
+.wd-sos-modal {
+    position: relative; background: #120000;
+    border: 1.5px solid rgba(255,59,48,.5); border-radius: 24px;
+    padding: 36px 28px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    max-width: 360px; width: 100%;
+    animation: sos-modal-flash 1s ease-in-out infinite;
+}
+@keyframes sos-modal-flash {
+    0%,100%{ border-color: rgba(255,59,48,.5); box-shadow: 0 0 40px rgba(255,59,48,.15); }
+    50%    { border-color: rgba(255,59,48,.9); box-shadow: 0 0 60px rgba(255,59,48,.35); }
+}
+.wd-sos-ring {
+    position: absolute; inset: -12px; border-radius: 32px;
+    border: 1.5px solid rgba(255,59,48,.2);
+    animation: sos-ring 1.6s ease-out infinite;
+    pointer-events: none;
+}
+@keyframes sos-ring { 0%{transform:scale(1);opacity:.7}100%{transform:scale(1.07);opacity:0} }
+.wd-sos-title { font-size: 34px; font-weight: 800; color: var(--wd-red); letter-spacing: .08em; }
+.wd-sos-msg   { font-size: 15px; color: var(--wd-txt2); line-height: 1.6; }
+.wd-sos-time  { font-size: 13px; color: var(--wd-txt3); }
+.wd-btn-dismiss {
+    display: flex; align-items: center; gap: 7px;
+    padding: 14px 28px; border-radius: 14px;
+    background: var(--wd-panel2); border: 1px solid var(--wd-sep2);
+    color: var(--wd-txt); font-size: 15px; font-weight: 700; font-family: var(--wd-font);
+    cursor: pointer; margin-top: 4px; transition: background .15s;
+}
+.wd-btn-dismiss:hover { background: var(--wd-panel3); }
+
+/* Camera overlay */
+.wd-camera-overlay { align-items: flex-start; padding-top: 0; }
+.wd-camera-frame {
+    width: 100%; max-width: 480px; min-height: 100dvh;
+    background: #141414; display: flex; flex-direction: column;
+    align-items: center; padding: 48px 20px 32px; gap: 20px;
+}
+/* Camera frame always dark — force white text regardless of card theme */
+.wd-camera-heading { font-size: 18px; font-weight: 700; color: #fff; text-align: center; letter-spacing: -.01em; }
+
+.wd-silhouette-box {
+    position: relative; width: 280px; height: 340px;
+    background: rgba(255,255,255,.05); border-radius: 12px;
+}
+/* Corner guide brackets — neon green */
+.wd-corner { position: absolute; width: 26px; height: 26px; border-color: var(--wd-neon); border-style: solid; }
+.wd-corner-tl { top: -2px; left: -2px;  border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+.wd-corner-tr { top: -2px; right: -2px; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+.wd-corner-bl { bottom: -2px; left: -2px;  border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+.wd-corner-br { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+.wd-silhouette {
+    position: absolute; inset: 20px;
+    background: rgba(255,255,255,.04);
+    clip-path: polygon(40% 0%, 60% 0%, 65% 15%, 80% 18%, 85% 50%, 65% 50%, 65% 70%, 70% 100%, 30% 100%, 35% 70%, 35% 50%, 15% 50%, 20% 18%, 35% 15%);
+}
+.wd-camera-hint { font-size: 13px; color: rgba(255,255,255,.7); text-align: center; max-width: 260px; line-height: 1.5; }
+
+/* Capture btn — neon green */
+.wd-btn-capture {
+    min-height: 72px; width: 100%; max-width: 320px;
+    background: var(--wd-neon); color: #000;
+    border-radius: 20px; border: none;
+    font-size: 18px; font-weight: 700; font-family: var(--wd-font);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    cursor: pointer; transition: opacity .15s, transform .15s;
+}
+.wd-btn-capture:hover { opacity: .88; transform: scale(1.01); }
+
+.wd-btn-cancel-cam {
+    background: none; border: 1px solid rgba(255,255,255,.25); color: rgba(255,255,255,.65);
+    padding: 12px 24px; border-radius: 14px; font-size: 14px; font-family: var(--wd-font);
+    display: flex; align-items: center; gap: 7px; cursor: pointer;
+    transition: color .15s, border-color .15s; font-weight: 600;
+}
+.wd-btn-cancel-cam:hover { color: var(--wd-txt); border-color: var(--wd-sep2); }
+
+/* Hazard report modal */
+.wd-hazard-modal {
+    background: var(--wd-panel); border: 1px solid var(--wd-sep2);
+    border-radius: 22px; padding: 22px 18px;
+    max-width: 380px; width: 100%;
+    display: flex; flex-direction: column; gap: 18px;
+}
+.wd-hazard-top { display: flex; align-items: center; justify-content: space-between; }
+.wd-hazard-title { font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
+.wd-hazard-close {
+    background: var(--wd-panel2); border: none; color: var(--wd-txt3);
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background .15s;
+}
+.wd-hazard-close:hover { background: var(--wd-panel3); color: var(--wd-txt); }
+.wd-hazard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.wd-hazard-btn {
+    aspect-ratio: 1;
+    background: var(--wd-panel2); border: 1px solid var(--wd-sep);
+    border-radius: 18px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; cursor: pointer;
+    font-size: 13px; font-weight: 700; color: var(--wd-txt2);
+    font-family: var(--wd-font);
+    transition: background .15s, border-color .15s, transform .15s;
+}
+.wd-hazard-btn:hover {
+    background: var(--wd-panel3);
+    border-color: var(--wd-sep2);
+    transform: scale(1.03);
+}
+/* Icon inside hazard btn keeps semantic color — only the icon, not the card bg */
+.wd-hazard-sent {
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    padding: 20px; text-align: center;
+    font-size: 16px; font-weight: 700; color: var(--wd-txt2);
+}
+
+/* Utility */
+.wd-file-hidden { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+
+/* ── Gas gauge grid (IN_MANHOLE phase) — 2 cols, 5th item centred ──── */
+.wd-gas-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+    max-width: 340px;
+    margin: 0 auto;
+}
+/* 5th gauge (WATER) spans both columns and shrinks to card-width */
+.wd-gas-grid > *:nth-child(5) {
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: 50%;
+}
+
+/* Loading skeleton placeholder (before first sensor_update arrives) */
+.wd-gas-skeleton {
+    height: 120px;
+    background: var(--wd-panel2);
+    border: 1px solid var(--wd-sep);
+    border-radius: 16px;
+    animation: gg-skeleton 1.4s ease-in-out infinite;
+}
+@keyframes gg-skeleton {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+}
+
+/* ── Evacuation order full-screen overlay ─────────────────────────────── */
+/* Overrides the default dark .wd-overlay with a vivid red */
+.wd-evac-overlay {
+    background: rgba(120, 0, 0, 0.92) !important;
+    animation: evac-bg-pulse 0.6s ease-in-out infinite;
+}
+@keyframes evac-bg-pulse {
+    0%, 100% { background: rgba(120, 0, 0, 0.92) !important; }
+    50%       { background: rgba(160, 0, 0, 0.96) !important; }
+}
+
+.wd-evac-modal {
+    background: #1a0000;
+    border: 2px solid var(--wd-red);
+    border-radius: 24px;
+    padding: 40px 32px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    max-width: 360px;
+    width: 100%;
+    box-shadow: 0 0 80px rgba(255, 59, 48, 0.5);
+    animation: sos-modal-flash 0.7s ease-in-out infinite;
+}
+
+.wd-evac-icon { font-size: 64px; line-height: 1; }
+
+.wd-evac-title {
+    font-size: 38px;
+    font-weight: 900;
+    color: var(--wd-red);
+    letter-spacing: .1em;
+    text-shadow: 0 0 24px rgba(255, 59, 48, 0.8);
+}
+
+.wd-evac-msg {
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.6;
+    max-width: 280px;
+}
+
+.wd-evac-dismiss {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 32px;
+    border-radius: 16px;
+    background: var(--wd-red);
+    border: none;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 800;
+    font-family: var(--wd-font);
+    cursor: pointer;
+    margin-top: 8px;
+    transition: opacity .15s, transform .15s;
+    letter-spacing: .03em;
+}
+.wd-evac-dismiss:hover  { opacity: .88; transform: scale(1.02); }
+.wd-evac-dismiss:active { opacity: .75; transform: scale(.97); }
+
+/* ── Pre-entry gas check UI (Feature 1) ─────────────────────────────── */
+.wd-check-card.blocked {
+    border-color: var(--wd-red) !important;
+    background: rgba(255,59,48,0.06);
+}
+
+.wd-gascheck-scanning-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 0 4px;
+}
+
+.wd-check-scanning {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--wd-amber);
+    animation: gg-skeleton 0.9s ease-in-out infinite;
+    white-space: nowrap;
+}
+
+.wd-gascheck-results {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 14px;
+    background: var(--wd-panel2);
+    border-radius: 14px;
+    border: 1px solid var(--wd-sep);
+}
+
+.wd-gascheck-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+.wd-gascheck-pill.pill-safe    { background: rgba(48,209,88,0.12);  color: #1a7a36; }
+.wd-gascheck-pill.pill-warning { background: rgba(255,159,10,0.14); color: #b45309; }
+.wd-gascheck-pill.pill-danger  { background: rgba(255,59,48,0.12);  color: #b91c1c; }
+
+.wd-gascheck-blocked {
+    padding: 10px 14px;
+    background: rgba(255,59,48,0.08);
+    border: 1px solid rgba(255,59,48,0.3);
+    border-radius: 12px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--wd-red);
+    line-height: 1.4;
+}
+
+/* ════════════════════════════════════════════════════════
+   SAFETY CO-PILOT ADVISORY CARD
+   ════════════════════════════════════════════════════════ */
+
+.wd-copilot-card {
+    width: 100%;
+    border-radius: 16px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: copilot-slide-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes copilot-slide-in {
+    from { opacity: 0; transform: translateY(-10px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Priority variants */
+.wd-copilot-card.copilot-high {
+    background: rgba(255, 59, 48, 0.07);
+    border: 1px solid rgba(255, 59, 48, 0.28);
+}
+.wd-copilot-card.copilot-medium {
+    background: rgba(255, 159, 10, 0.07);
+    border: 1px solid rgba(255, 159, 10, 0.28);
+}
+.wd-copilot-card.copilot-low {
+    background: rgba(48, 209, 88, 0.06);
+    border: 1px solid rgba(48, 209, 88, 0.22);
+}
+
+/* Header row: title + action buttons */
+.wd-copilot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.wd-copilot-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--wd-txt);
+    line-height: 1.2;
+}
+
+.wd-copilot-card.copilot-high   .wd-copilot-title { color: var(--wd-red); }
+.wd-copilot-card.copilot-medium .wd-copilot-title { color: var(--wd-amber); }
+.wd-copilot-card.copilot-low    .wd-copilot-title { color: #1a7a36; }
+
+.wd-copilot-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+/* Speak / Close icon buttons */
+.wd-copilot-speak-btn,
+.wd-copilot-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+    color: var(--wd-txt2);
+    background: transparent;
+}
+.wd-copilot-speak-btn:hover { background: rgba(0,0,0,0.06); color: var(--wd-txt); }
+.wd-copilot-close-btn:hover { background: rgba(0,0,0,0.06); color: var(--wd-txt); }
+
+/* Risk reasons list */
+.wd-copilot-reasons {
+    margin: 0;
+    padding: 0 0 0 16px;
+    list-style: disc;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.wd-copilot-reasons li {
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--wd-txt);
+    line-height: 1.45;
+}
+
+.wd-copilot-card.copilot-high   .wd-copilot-reasons li { color: var(--wd-red); }
+.wd-copilot-card.copilot-medium .wd-copilot-reasons li { color: #92400e; }
+
+/* Tips list */
+.wd-copilot-tips {
+    margin: 0;
+    padding: 0 0 0 16px;
+    list-style: '✓ ';
+    border-top: 1px solid rgba(0,0,0,0.06);
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.wd-copilot-tips li {
+    font-size: 0.78rem;
+    color: var(--wd-txt2);
+    line-height: 1.45;
+}
+
+/* ════════════════════════════════════════════════════════
+   DASHBOARD TAB SWITCHER  (कार्य | मेरी डायरी)
+   ════════════════════════════════════════════════════════ */
+
+.wd-tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--wd-panel2);
+    padding: 5px;
+    border-radius: 14px;
+    border: 1px solid var(--wd-sep);
+}
+
+.wd-tab {
+    flex: 1;
+    padding: 9px 12px;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    font-family: var(--wd-font);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--wd-txt2);
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s;
+    white-space: nowrap;
+}
+
+.wd-tab:hover:not(.wd-tab-active) {
+    background: rgba(0,0,0,0.04);
+}
+
+.wd-tab-active {
+    background: var(--wd-panel);
+    color: var(--wd-txt);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+}
+
+
+

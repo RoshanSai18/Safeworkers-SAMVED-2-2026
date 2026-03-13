@@ -1,0 +1,87 @@
+/* GasGauge — compact circular SVG arc gauge card
+   Uses WorkerDashboard CSS variables for consistency. */
+
+.gg-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 8px 8px;
+    background: var(--wd-panel2);
+    border: 1px solid var(--wd-sep);
+    border-radius: 16px;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Status border glow */
+.gg-card.gg-safe    { border-color: rgba(48, 209, 88, 0.25); }
+.gg-card.gg-warning { border-color: rgba(255, 159, 10, 0.5); box-shadow: 0 0 12px rgba(255, 159, 10, 0.2); }
+.gg-card.gg-danger  { border-color: rgba(255, 59, 48, 0.6);  box-shadow: 0 0 16px rgba(255, 59, 48, 0.3); }
+
+/* Loading skeleton pulse */
+.gg-card.gg-loading { opacity: 0.55; }
+.gg-card.gg-loading .gg-svg { animation: gg-skeleton 1.4s ease-in-out infinite; }
+
+@keyframes gg-skeleton {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.35; }
+}
+
+/* Warning: soft amber pulse */
+.gg-card.gg-warning {
+    animation: gg-warn-pulse 1.8s ease-in-out infinite;
+}
+@keyframes gg-warn-pulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(255, 159, 10, 0.2); }
+    50%       { box-shadow: 0 0 18px rgba(255, 159, 10, 0.45); }
+}
+
+/* Danger: rapid red flash (mirrors .ring-flash in WorkerDashboard) */
+.gg-card.gg-danger {
+    animation: gg-danger-flash 0.55s ease-in-out infinite;
+}
+@keyframes gg-danger-flash {
+    0%, 100% { box-shadow: 0 0 16px rgba(255, 59, 48, 0.3); }
+    50%       { box-shadow: 0 0 28px rgba(255, 59, 48, 0.7); }
+}
+
+/* SVG elements */
+.gg-svg { display: block; }
+
+.gg-track {
+    stroke: var(--wd-sep2);
+}
+
+.gg-arc-safe    { stroke: var(--wd-safe);  }
+.gg-arc-warning { stroke: var(--wd-amber); }
+.gg-arc-danger  { stroke: var(--wd-red);   }
+
+/* Centre text */
+.gg-val {
+    font-family: var(--wd-font);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    fill: var(--wd-txt);
+}
+
+.gg-unit {
+    font-family: var(--wd-font);
+    font-size: 9px;
+    font-weight: 500;
+    fill: var(--wd-txt3);
+    letter-spacing: 0.2px;
+}
+
+/* Gas name label below SVG */
+.gg-name {
+    font-family: var(--wd-font);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--wd-txt2);
+    line-height: 1;
+}
