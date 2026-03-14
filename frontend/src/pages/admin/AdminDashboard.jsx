@@ -6,7 +6,7 @@ import {
 import {
     LogOut, Download, Search, Filter, TrendingUp, AlertTriangle,
     Users, CheckCircle2, Shield, Calendar, FileText,
-    MessageSquare, MapPin, Activity, Award, Zap, Building2, ExternalLink, Flag, Lightbulb, Volume2
+    MessageSquare, MapPin, Activity, Award, Zap, Building2, ExternalLink, Flag, Lightbulb, Volume2, VolumeX
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -123,14 +123,6 @@ const AI_WARD_TEXT = {
     W7: 'वार्ड W7 का सुरक्षा स्कोर उत्कृष्ट है — केवल 1 घटना, 0% उच्च-जोखिम कार्य, और न्यूनतम हानिकारक कचरा। यह Zone F के नए सीवर इंफ्रास्ट्रक्चर का परिणाम है। अनुशंसा: W7 की सर्वोत्तम कार्यप्रणाली को दस्तावेज़ीकृत करें और इसे पूरे शहर में Best Practice Guide के रूप में साझा करें।',
     W8: 'वार्ड W8 में हानिकारक कचरे का अनुपात 28% है — यह शहर में सर्वाधिक है। Zone G में औद्योगिक नाले मिलते हैं जिससे कार्बनिक और रासायनिक कचरे का खतरनाक मिश्रण बनता है। सुझाव: (1) तत्काल हानिकारक कचरा संग्रहण यूनिट स्थापित करें, (2) W8 वर्करों को त्रैमासिक मेडिकल स्क्रीनिंग में प्राथमिकता दें, (3) Zone G के ड्रेनेज मैप को अपडेट करके खतरनाक बिंदुओं को चिह्नित करें।',
 };
-
-function speakHindi(text) {
-    window.speechSynthesis.cancel();
-    const msg = new SpeechSynthesisUtterance(text);
-    msg.lang = 'hi-IN';
-    msg.rate = 0.88;
-    window.speechSynthesis.speak(msg);
-}
 
 function generateWardRecommendations() {
     return WARD_LABELS.map(ward => {
@@ -298,6 +290,7 @@ export default function AdminDashboard() {
     const [ersuDeployed,     setErsuDeployed]     = useState(false);
     const [dsExpanded,       setDsExpanded]       = useState(false);
     const [aiStates,         setAiStates]         = useState({});
+    const [speakState,       setSpeakState]       = useState({ ward: null });
     const typingRefs = useRef({});
 
     useEffect(() => {
@@ -309,7 +302,6 @@ export default function AdminDashboard() {
         setAiStates(prev => ({ ...prev, [ward]: { phase: 'loading', text: '' } }));
         setTimeout(() => {
             const full = AI_WARD_TEXT[ward] || '';
-            speakHindi(full);
             let i = 0;
             const tick = () => {
                 i++;
@@ -321,6 +313,21 @@ export default function AdminDashboard() {
             };
             typingRefs.current[ward] = setTimeout(tick, 20);
         }, 1500);
+    };
+
+    const toggleSpeak = (ward) => {
+        if (speakState.ward === ward && window.speechSynthesis.speaking) {
+            window.speechSynthesis.cancel();
+            setSpeakState({ ward: null });
+            return;
+        }
+        window.speechSynthesis.cancel();
+        const msg = new SpeechSynthesisUtterance(AI_WARD_TEXT[ward] || '');
+        msg.lang = 'hi-IN';
+        msg.rate = 0.88;
+        msg.onend = () => setSpeakState(s => s.ward === ward ? { ward: null } : s);
+        window.speechSynthesis.speak(msg);
+        setSpeakState({ ward });
     };
 
     // Plan safety check state
@@ -550,10 +557,13 @@ export default function AdminDashboard() {
                                                         <div className="ds-ai-label"><Zap size={10}/> AI विश्लेषण</div>
                                                         <button
                                                             className="ds-speak-btn"
-                                                            onClick={() => speakHindi(AI_WARD_TEXT[rec.ward])}
-                                                            title="सुनें"
+                                                            onClick={() => toggleSpeak(rec.ward)}
+                                                            title={speakState.ward === rec.ward ? "बंद करें" : "सुनें"}
                                                         >
-                                                            <Volume2 size={13}/>
+                                                            {speakState.ward === rec.ward
+                                                                ? <VolumeX size={13}/>
+                                                                : <Volume2 size={13}/>
+                                                            }
                                                         </button>
                                                     </div>
                                                     <p className="ds-ai-text">
