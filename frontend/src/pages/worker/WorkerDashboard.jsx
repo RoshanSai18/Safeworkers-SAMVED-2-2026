@@ -119,6 +119,19 @@ function computeLocalAdvisory({ depth = 0, recentIncidents = 0, weather = 'clear
     };
 }
 
+function getReasonIcon(reason) {
+    if (reason.includes('गहरा') || reason.includes('गहर'))        return '🕳️';
+    if (reason.includes('बाढ़'))                                   return '🌊';
+    if (reason.includes('बारिश') || reason.includes('पानी भर'))   return '🌧️';
+    if (reason.includes('तूफान'))                                  return '⛈️';
+    if (reason.includes('गर्मी'))                                  return '🌡️';
+    if (reason.includes('H₂S') || reason.includes('CO') ||
+        reason.includes('ऑक्सीजन') || reason.includes('मीथेन') ||
+        reason.includes('पानी भर रहा'))                            return '☣️';
+    if (reason.includes('घटना'))                                   return '⚠️';
+    return '⚠️';
+}
+
 /*  Swipe-to-Confirm  */
 function SwipeConfirm({ label, onConfirm, confirmed, blocked }) {
     const trackRef  = useRef(null);
@@ -700,21 +713,24 @@ export default function WorkerDashboard() {
                                             aria-label="सलाह सुनें"
                                             title="Read aloud in Hindi"
                                         >
-                                            <Volume2 size={15} />
+                                            <Volume2 size={20} />
                                         </button>
                                         <button
                                             className="wd-copilot-close-btn"
                                             onClick={() => setAdvisoryVisible(false)}
                                             aria-label="बंद करें"
                                         >
-                                            <X size={15} />
+                                            <X size={20} />
                                         </button>
                                     </div>
                                 </div>
                                 {advisory.reasons.length > 0 && (
                                     <ul className="wd-copilot-reasons">
                                         {advisory.reasons.map((r, i) => (
-                                            <li key={i}>{r}</li>
+                                            <li key={i}>
+                                                <span className="wd-copilot-reason-icon">{getReasonIcon(r)}</span>
+                                                {r}
+                                            </li>
                                         ))}
                                     </ul>
                                 )}

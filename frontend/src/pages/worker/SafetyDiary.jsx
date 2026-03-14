@@ -55,13 +55,13 @@ function getLocalProfile(workerId) {
 
 const RISK_LABEL = { HIGH: 'उच्च', MEDIUM: 'मध्यम', LOW: 'कम' };
 const RISK_CLASS  = { HIGH: 'risk-high', MEDIUM: 'risk-med', LOW: 'risk-low' };
-const RISK_DOT    = { HIGH: '#ff3b30', MEDIUM: '#ff9f0a', LOW: '#30d158' };
+const RISK_DOT    = { HIGH: '#ef4444', MEDIUM: '#f59e0b', LOW: '#22c55e' };
 
 function scoreLevel(s) {
     return s >= 80 ? 'great' : s >= 50 ? 'good' : 'start';
 }
 function scoreColor(s) {
-    return s >= 80 ? '#30d158' : s >= 50 ? '#ff9f0a' : '#0a84ff';
+    return s >= 80 ? '#16a34a' : s >= 50 ? '#f59e0b' : '#3b82f6';
 }
 function scoreCaption(s) {
     return s >= 80 ? 'उत्कृष्ट – शीर्ष स्तर' : s >= 50 ? 'अच्छा – बढ़ता रहें' : 'शुरुआत – जारी रखें';
@@ -141,7 +141,7 @@ export default function SafetyDiary({ workerId, workerName, badge, socket }) {
                 <div className="sd-score-body">
                     <ScoreArc score={profile.displayScore} />
                     <div className="sd-score-detail">
-                        <div className="sd-score-caption" style={{ color }}>
+                        <div className="sd-score-caption">
                             {scoreCaption(profile.displayScore)}
                         </div>
                         <div className="sd-score-bar-wrap">
@@ -181,17 +181,18 @@ export default function SafetyDiary({ workerId, workerName, badge, socket }) {
                 </div>
             </div>
 
-            {/* ── Positive messages ── */}
-            {profile.messages.length > 0 && (
-                <div className="sd-messages">
-                    <div className="sd-messages-heading">🌟 आपकी सराहना</div>
-                    {profile.messages.map((msg, i) => (
-                        <div key={i} className="sd-message-row">
-                            <span className="sd-msg-text">{msg}</span>
+            {/* ── Positive messages — rotating single message ── */}
+            {profile.messages.length > 0 && (() => {
+                const idx = Math.floor(Date.now() / (1000 * 60 * 5)) % profile.messages.length;
+                return (
+                    <div className="sd-messages">
+                        <div className="sd-messages-heading">🌟 आपकी सराहना</div>
+                        <div className="sd-message-row">
+                            <span className="sd-msg-text">{profile.messages[idx]}</span>
                         </div>
-                    ))}
-                </div>
-            )}
+                    </div>
+                );
+            })()}
 
             {/* ── Earned badges ── */}
             {earnedBadges.length > 0 && (
@@ -206,8 +207,10 @@ export default function SafetyDiary({ workerId, workerName, badge, socket }) {
                             <div key={b.id} className="sd-badge sd-badge-earned">
                                 <div className="sd-badge-glow" />
                                 <span className="sd-badge-emoji">{b.emoji}</span>
-                                <span className="sd-badge-label">{b.label}</span>
-                                <span className="sd-badge-desc">{b.desc}</span>
+                                <div className="sd-badge-text">
+                                    <span className="sd-badge-label">{b.label}</span>
+                                    <span className="sd-badge-desc">{b.desc}</span>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -228,8 +231,10 @@ export default function SafetyDiary({ workerId, workerName, badge, socket }) {
                                     <span className="sd-badge-emoji sd-badge-emoji-dim">{b.emoji}</span>
                                     <Lock size={11} className="sd-lock-icon" />
                                 </div>
-                                <span className="sd-badge-label sd-badge-label-dim">{b.label}</span>
-                                <span className="sd-badge-desc sd-badge-desc-dim">{b.desc}</span>
+                                <div className="sd-badge-text">
+                                    <span className="sd-badge-label sd-badge-label-dim">{b.label}</span>
+                                    <span className="sd-badge-desc sd-badge-desc-dim">{b.desc}</span>
+                                </div>
                             </div>
                         ))}
                     </div>

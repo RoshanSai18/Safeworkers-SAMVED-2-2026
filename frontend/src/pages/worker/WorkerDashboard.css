@@ -37,8 +37,8 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
                       radial-gradient(ellipse at 70% 80%, rgba(255,255,255,.015) 0%, transparent 55%);
     color: var(--wd-txt);
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
     font-family: var(--wd-font);
     padding: 48px 20px;
 }
@@ -53,6 +53,7 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    margin: auto 0;
     box-shadow:
         0 2px 8px rgba(0,0,0,.12),
         0 16px 48px rgba(0,0,0,.35),
@@ -85,10 +86,10 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
 /* Duty toggle — neutral pill, iOS-inspired */
 .wd-duty-toggle {
     display: flex; align-items: center; gap: 8px;
-    height: 34px; border-radius: 999px;
-    padding: 4px 14px 4px 5px;
+    height: 48px; border-radius: 999px;
+    padding: 6px 18px 6px 6px;
     border: 1px solid var(--wd-sep2);
-    font-size: 11px; font-weight: 700; letter-spacing: .05em;
+    font-size: 12px; font-weight: 700; letter-spacing: .05em;
     cursor: pointer; transition: all .2s;
     user-select: none;
 }
@@ -99,12 +100,12 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
     background: transparent; border-color: var(--wd-sep); color: var(--wd-txt3);
 }
 .wd-duty-thumb {
-    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
     transition: background .2s;
 }
 .wd-duty-toggle.on-duty  .wd-duty-thumb { background: #fff; }
 .wd-duty-toggle.idle     .wd-duty-thumb { background: var(--wd-txt3); }
-.wd-duty-label { font-size: 11px; font-weight: 700; }
+.wd-duty-label { font-size: 12px; font-weight: 700; }
 
 .wd-logout-btn {
     width: 38px; height: 38px; border-radius: 10px;
@@ -148,7 +149,8 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
 }
 .wd-btn-secondary:hover { background: var(--wd-panel3); transform: scale(1.01); }
 /* Extra breathing room between Begin Checklist and Report Hazard on the dashboard */
-.wd-dashboard > .wd-btn-secondary { margin-top: 8px; }
+/* Amber border makes "Report Hazard" visually distinct as an actionable button */
+.wd-dashboard > .wd-btn-secondary { margin-top: 8px; border-color: var(--wd-amber); color: var(--wd-txt); }
 
 .wd-btn-back {
     background: none; border: none; color: var(--wd-txt3);
@@ -768,14 +770,14 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
     flex-shrink: 0;
 }
 
-/* Speak / Close icon buttons */
+/* Speak / Close icon buttons — 44px min for glove-friendly tapping */
 .wd-copilot-speak-btn,
 .wd-copilot-close-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     border: none;
     cursor: pointer;
@@ -789,8 +791,8 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
 /* Risk reasons list */
 .wd-copilot-reasons {
     margin: 0;
-    padding: 0 0 0 16px;
-    list-style: disc;
+    padding: 0;
+    list-style: none;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -801,6 +803,15 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
     font-weight: 500;
     color: var(--wd-txt);
     line-height: 1.45;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.wd-copilot-reason-icon {
+    font-size: 1rem;
+    line-height: 1.45;
+    flex-shrink: 0;
 }
 
 .wd-copilot-card.copilot-high   .wd-copilot-reasons li { color: var(--wd-red); }
