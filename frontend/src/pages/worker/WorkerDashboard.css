@@ -817,6 +817,48 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
 .wd-copilot-card.copilot-high   .wd-copilot-reasons li { color: var(--wd-red); }
 .wd-copilot-card.copilot-medium .wd-copilot-reasons li { color: #92400e; }
 
+/* Explainability summary + confidence */
+.wd-copilot-explain {
+    border-top: 1px solid rgba(0,0,0,0.06);
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    padding: 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.wd-copilot-summary {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--wd-txt);
+    line-height: 1.5;
+    font-weight: 600;
+}
+
+.wd-copilot-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.wd-copilot-meta span {
+    font-size: 0.72rem;
+    color: var(--wd-txt2);
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 999px;
+    padding: 2px 8px;
+    background: rgba(255,255,255,0.65);
+}
+
+.wd-copilot-tip-heading {
+    margin-top: 2px;
+    font-size: 0.73rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wd-txt3);
+    font-weight: 700;
+}
+
 /* Tips list */
 .wd-copilot-tips {
     margin: 0;

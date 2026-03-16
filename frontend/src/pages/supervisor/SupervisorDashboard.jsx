@@ -26,10 +26,10 @@ const WORKERS_SEED = [
 ];
 
 const JOBS_SEED = [
-    { id: 'MH-4420', address: 'Lal Bazaar, Gate 7',       zone: 'Zone C', risk: 'HIGH',   priority: 'Urgent', equipment: 'Breathing Apparatus, Gas Meter' },
-    { id: 'MH-2215', address: 'Shivaji Colony, Main Rd',  zone: 'Zone A', risk: 'MEDIUM', priority: 'Normal', equipment: 'Standard PPE, Safety Rope' },
-    { id: 'MH-0078', address: 'Station Rd, Junction 3',   zone: 'Zone B', risk: 'LOW',    priority: 'Low',    equipment: 'Standard PPE' },
-    { id: 'MH-5501', address: 'Park Lane, Sector 9',      zone: 'Zone D', risk: 'MEDIUM', priority: 'Normal', equipment: 'Gas Meter, Standard PPE' },
+    { id: 'MH-4420', address: 'Lal Bazaar, Gate 7',       zone: 'Zone C', risk: 'HIGH',   priority: 'Urgent', equipment: 'Breathing Apparatus, Gas Meter', lat: 19.0830, lng: 72.8810 },
+    { id: 'MH-2215', address: 'Shivaji Colony, Main Rd',  zone: 'Zone A', risk: 'MEDIUM', priority: 'Normal', equipment: 'Standard PPE, Safety Rope',      lat: 19.0720, lng: 72.8630 },
+    { id: 'MH-0078', address: 'Station Rd, Junction 3',   zone: 'Zone B', risk: 'LOW',    priority: 'Low',    equipment: 'Standard PPE',                   lat: 19.0900, lng: 72.8700 },
+    { id: 'MH-5501', address: 'Park Lane, Sector 9',      zone: 'Zone D', risk: 'MEDIUM', priority: 'Normal', equipment: 'Gas Meter, Standard PPE',         lat: 19.0680, lng: 72.8920 },
 ];
 
 const PPE_QUEUE_SEED = [
@@ -95,6 +95,76 @@ function RecenterOnWorker({ pos }) {
     return null;
 }
 
+function renderMarkdown(text) {
+    if (!text) return null;
+    const lines = text.split('\n');
+    const elements = [];
+    let listItems = [];
+    const flushList = () => {
+        if (listItems.length > 0) {
+            elements.push(<ul key={`ul-${elements.length}`} className="sd-ai-md-ul">{listItems}</ul>);
+            listItems = [];
+        }
+    };
+    const inlineFormat = (str, idx) => {
+        const parts = [];
+        const regex = /\*\*(.+?)\*\*/g;
+        let last = 0, match;
+        while ((match = regex.exec(str)) !== null) {
+            if (match.index > last) parts.push(str.slice(last, match.index));
+            parts.push(<strong key={`b-${idx}-${match.index}`}>{match[1]}</strong>);
+            last = regex.lastIndex;
+        }
+        if (last < str.length) parts.push(str.slice(last));
+        return parts.length ? parts : str;
+    };
+    lines.forEach((line, i) => {
+        const trimmed = line.trim();
+        if (!trimmed) { flushList(); elements.push(<div key={`br-${i}`} className="sd-ai-md-br" />); return; }
+        const hMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+        if (hMatch) {
+            flushList();
+            const level = hMatch[1].length;
+            const Tag = level === 1 ? 'h3' : level === 2 ? 'h4' : 'h5';
+            elements.push(<Tag key={`h-${i}`} className="sd-ai-md-heading">{inlineFormat(hMatch[2], i)}</Tag>);
+            return;
+        }
+        const bulletMatch = trimmed.match(/^[-*•]\s+(.+)$/);
+        if (bulletMatch) {
+            listItems.push(<li key={`li-${i}`}>{inlineFormat(bulletMatch[1], i)}</li>);
+            return;
+        }
+        const numMatch = trimmed.match(/^\d+[.)]\s+(.+)$/);
+        if (numMatch) {
+            listItems.push(<li key={`li-${i}`}>{inlineFormat(numMatch[1], i)}</li>);
+            return;
+        }
+        flushList();
+        elements.push(<p key={`p-${i}`} className="sd-ai-md-p">{inlineFormat(trimmed, i)}</p>);
+    });
+    flushList();
+    return elements;
+}
+
+function riskPriorityHi(priority) {
+    if (priority === 'high') return 'उच्च';
+    if (priority === 'medium') return 'मध्यम';
+    return 'कम';
+}
+
+function parseGasExplainability(alert) {
+    const explain = alert?.explainability || {};
+    const immediateSteps = Array.isArray(explain.immediateSteps) && explain.immediateSteps.length > 0
+        ? explain.immediateSteps
+        : (Array.isArray(alert?.immediateSteps) ? alert.immediateSteps : []);
+
+    return {
+        summaryHi: explain.summaryHi || alert?.reasoningHi || '',
+        confidence: explain.confidence || alert?.confidence || '',
+        immediateSteps,
+    };
+}
+
 export default function SupervisorDashboard() {
     const { currentUser, logout } = useAuth();
     const navigate = useNavigate();
@@ -121,6 +191,19 @@ export default function SupervisorDashboard() {
     const [gasCache,             setGasCache]             = useState({});
     const [hoveredAlertWorkerId, setHoveredAlertWorkerId] = useState(null);
 
+    const [aiRecModal, setAiRecModal]   = useState(false);
+    const [aiRecState, setAiRecState]   = useState('idle');    // 'idle' | 'loading' | 'typing' | 'done' | 'error'
+    const [aiRecText,  setAiRecText]    = useState('');
+    const [aiRecError, setAiRecError]   = useState('');
+    const [aiRecLang,  setAiRecLang]    = useState('en');   // 'en' | 'hi'
+    const aiRecTypingRef = useRef(null);
+
+    const [simWorkerId, setSimWorkerId] = useState('');
+    const [simJobId, setSimJobId]       = useState('');
+    const [simState, setSimState]       = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
+    const [simResult, setSimResult]     = useState(null);
+    const [simError, setSimError]       = useState('');
+
     const { socket } = useSocket();
 
     useEffect(() => {
@@ -133,6 +216,22 @@ export default function SupervisorDashboard() {
         if (sos && !sosModal) setSosModal(sos);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    useEffect(() => {
+        const simulationWorkers = workers.filter(w => w.status !== 'SOS');
+
+        if (simulationWorkers.length === 0) {
+            if (simWorkerId) setSimWorkerId('');
+        } else if (!simulationWorkers.some(w => String(w.id) === String(simWorkerId))) {
+            setSimWorkerId(String(simulationWorkers[0].id));
+        }
+
+        if (jobs.length === 0) {
+            if (simJobId) setSimJobId('');
+        } else if (!jobs.some(j => j.id === simJobId)) {
+            setSimJobId(jobs[0].id);
+        }
+    }, [workers, jobs, simWorkerId, simJobId]);
 
     // Real-time socket: live gas readings cache + auto-alerts from sensor engine
     useEffect(() => {
@@ -231,9 +330,93 @@ export default function SupervisorDashboard() {
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     };
 
+    const fetchRecommendations = async (lang = aiRecLang) => {
+        const normalizedLang = lang === 'hi' ? 'hi' : 'en';
+        setAiRecLang(normalizedLang);
+        setAiRecModal(true);
+        setAiRecState('loading');
+        setAiRecText('');
+        setAiRecError('');
+        if (aiRecTypingRef.current) clearTimeout(aiRecTypingRef.current);
+
+        try {
+            const res = await fetch('http://localhost:3001/api/recommendations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lang: normalizedLang }),
+                signal: AbortSignal.timeout(30000),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Unknown error');
+
+            const fullText = data.recommendation;
+            let i = 0;
+            setAiRecState('typing');
+            const tick = () => {
+                i++;
+                setAiRecText(fullText.slice(0, i));
+                if (i < fullText.length) {
+                    aiRecTypingRef.current = setTimeout(tick, 12);
+                } else {
+                    setAiRecState('done');
+                }
+            };
+            aiRecTypingRef.current = setTimeout(tick, 12);
+        } catch (err) {
+            setAiRecState('error');
+            setAiRecError(err.message || 'Failed to get recommendations');
+        }
+    };
+
+    const runCounterfactualSimulation = async () => {
+        if (!simWorkerId || !simJobId) return;
+
+        setAiRecModal(true);
+        setSimState('loading');
+        setSimError('');
+        setSimResult(null);
+
+        try {
+            const res = await fetch('http://localhost:3001/api/recommendations/simulate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workerId: Number(simWorkerId),
+                    jobId: simJobId,
+                    lang: aiRecLang,
+                    workers,
+                    jobs,
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Unknown simulation error');
+
+            setSimResult(data.simulation);
+            setSimState('done');
+        } catch (err) {
+            setSimState('error');
+            setSimError(err.message || 'Failed to run simulation');
+        }
+    };
+
+    const closeAiRecModal = () => {
+        setAiRecModal(false);
+        setAiRecState('idle');
+        setAiRecText('');
+        setAiRecError('');
+        setSimState('idle');
+        setSimResult(null);
+        setSimError('');
+        if (aiRecTypingRef.current) clearTimeout(aiRecTypingRef.current);
+    };
+
     const inManholeCount = workers.filter(w => w.status === 'IN_MANHOLE').length;
     const sosCount       = workers.filter(w => w.status === 'SOS').length;
     const onlineCount    = workers.filter(w => w.status !== 'SIGNAL_LOST').length;
+    const simulationWorkers = workers.filter(w => w.status !== 'SOS');
+    const simulationJobs = jobs;
 
     return (
         <div className="sd-root">
@@ -283,6 +466,222 @@ export default function SupervisorDashboard() {
                     </div>
                 </div>
             )}
+
+            {/* AI SMART ASSIGN SLIDE-IN PANEL */}
+            <div className={`sd-ai-panel-overlay${aiRecModal ? ' open' : ''}`} onClick={closeAiRecModal} />
+            <div className={`sd-ai-panel${aiRecModal ? ' open' : ''}`}>
+                <div className="sd-ai-panel-header">
+                    <div className="sd-ai-panel-icon"><Zap size={18} /></div>
+                    <div>
+                        <div className="sd-ai-panel-title">AI Smart Assign</div>
+                        <div className="sd-ai-panel-sub">Powered by Gemini</div>
+                    </div>
+                    <button className="sd-ai-panel-close" onClick={closeAiRecModal}><X size={16} /></button>
+                </div>
+
+                <div className="sd-ai-panel-scroll">
+                    {/* AI Recommendation Section */}
+                    <div className="sd-ai-panel-section">
+                        <div className="sd-ai-panel-section-label">
+                            <Zap size={12} /> Recommendation
+                            <div className="sd-lang-toggle">
+                                <button
+                                    className={`sd-lang-btn${aiRecLang === 'en' ? ' active' : ''}`}
+                                    onClick={() => fetchRecommendations('en')}
+                                >EN</button>
+                                <button
+                                    className={`sd-lang-btn${aiRecLang === 'hi' ? ' active' : ''}`}
+                                    onClick={() => fetchRecommendations('hi')}
+                                >HI</button>
+                            </div>
+                        </div>
+                        <div className="sd-ai-rec-body">
+                            {aiRecState === 'idle' && (
+                                <div className="sd-ai-rec-idle">Click the button above or wait for analysis...</div>
+                            )}
+                            {aiRecState === 'loading' && (
+                                <div className="sd-ai-rec-loading">
+                                    <span className="sd-ai-spinner" />
+                                    <span>Analyzing workers, jobs & distances...</span>
+                                </div>
+                            )}
+                            {aiRecState === 'error' && (
+                                <div className="sd-ai-rec-error">
+                                    <AlertTriangle size={16} />
+                                    <p>{aiRecError}</p>
+                                    <button className="sd-ai-rec-retry" onClick={fetchRecommendations}>Retry</button>
+                                </div>
+                            )}
+                            {(aiRecState === 'typing' || aiRecState === 'done') && (
+                                <div className="sd-ai-rec-text">
+                                    {renderMarkdown(aiRecText)}
+                                    {aiRecState === 'typing' && <span className="sd-ai-cursor">|</span>}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Counterfactual Simulator */}
+                    <div className="sd-ai-panel-section">
+                        <div className="sd-ai-panel-section-label"><ChevronRight size={12} /> Counterfactual Simulator</div>
+                        <div className="sd-ai-sim-controls">
+                            <div className="sd-ai-sim-field">
+                                <label>Worker</label>
+                                <select
+                                    className="sd-ai-sim-select"
+                                    value={simWorkerId}
+                                    onChange={(e) => setSimWorkerId(e.target.value)}
+                                    disabled={simState === 'loading' || simulationWorkers.length === 0}
+                                >
+                                    {simulationWorkers.map(w => (
+                                        <option key={w.id} value={String(w.id)}>
+                                            {w.name} ({w.badge}) · {STATUS_CFG[w.status]?.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="sd-ai-sim-field">
+                                <label>Open Job</label>
+                                <select
+                                    className="sd-ai-sim-select"
+                                    value={simJobId}
+                                    onChange={(e) => setSimJobId(e.target.value)}
+                                    disabled={simState === 'loading' || simulationJobs.length === 0}
+                                >
+                                    {simulationJobs.map(j => (
+                                        <option key={j.id} value={j.id}>
+                                            {j.id} · {j.zone} · {j.risk}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button
+                                className="sd-ai-sim-btn"
+                                onClick={runCounterfactualSimulation}
+                                disabled={simState === 'loading' || !simWorkerId || !simJobId}
+                            >
+                                {simState === 'loading' ? 'Running simulation...' : 'Run What-If Simulation'}
+                            </button>
+                        </div>
+
+                        <div className="sd-ai-sim-body">
+                            {simulationJobs.length === 0 && (
+                                <div className="sd-ai-rec-idle">No open jobs available for simulation.</div>
+                            )}
+
+                            {simulationJobs.length > 0 && simState === 'idle' && (
+                                <div className="sd-ai-rec-idle">Pick a worker and open job to preview risk before dispatch.</div>
+                            )}
+
+                            {simState === 'error' && (
+                                <div className="sd-ai-rec-error">
+                                    <AlertTriangle size={16} />
+                                    <p>{simError}</p>
+                                </div>
+                            )}
+
+                            {simState === 'done' && simResult && (
+                                <div className="sd-ai-sim-result">
+                                    <div className="sd-ai-sim-metrics">
+                                        <span className={`sd-ai-sim-chip band-${simResult.before.band.key}`}>
+                                            Before {simResult.before.score} ({simResult.before.band.label})
+                                        </span>
+                                        <span className={`sd-ai-sim-chip band-${simResult.after.band.key}`}>
+                                            After {simResult.after.score} ({simResult.after.band.label})
+                                        </span>
+                                        <span className={`sd-ai-sim-chip delta ${simResult.delta >= 0 ? 'up' : 'down'}`}>
+                                            Delta {simResult.delta >= 0 ? '+' : ''}{simResult.delta}
+                                        </span>
+                                    </div>
+
+                                    <p className="sd-ai-sim-summary">{simResult.summary}</p>
+
+                                    {Array.isArray(simResult.mitigations) && simResult.mitigations.length > 0 && (
+                                        <ul className="sd-ai-sim-list">
+                                            {simResult.mitigations.map((tip, idx) => (
+                                                <li key={`sim-tip-${idx}`}>{tip}</li>
+                                            ))}
+                                        </ul>
+                                    )}
+
+                                    {Array.isArray(simResult.alternatives) && simResult.alternatives.length > 0 && (
+                                        <div className="sd-ai-sim-alt">
+                                            <div className="sd-ai-sim-alt-title">Best alternatives</div>
+                                            {simResult.alternatives.map(alt => (
+                                                <div className="sd-ai-sim-alt-row" key={alt.workerId}>
+                                                    <span>{alt.workerName} ({alt.badge})</span>
+                                                    <span>{alt.score} · {alt.distanceKm} km</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="sd-ai-sim-narrative">
+                                        {renderMarkdown(simResult.aiNarrative)}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Jobs Assignment Section */}
+                    <div className="sd-ai-panel-section">
+                        <div className="sd-ai-panel-section-label"><UserCheck size={12} /> Workers</div>
+                        <div className="sd-dispatch-workers">
+                            {workers.map(w => (
+                                <div
+                                    key={w.id}
+                                    className={`sd-dispatch-worker${draggingWorker?.id === w.id ? ' dragging' : ''}${
+                                        ['SOS', 'IN_MANHOLE', 'DELAYED'].includes(w.status) ? ' busy' : ''
+                                    }`}
+                                    draggable
+                                    onDragStart={() => handleDragStartWorker(w)}
+                                    onDragEnd={handleDragEndWorker}
+                                    title={STATUS_CFG[w.status]?.label}
+                                >
+                                    <span className="sd-dispatch-worker-dot" style={{ background: STATUS_CFG[w.status]?.color }} />
+                                    <span className="sd-dispatch-worker-name">{w.name}</span>
+                                    <span className="sd-dispatch-worker-badge">{w.badge}</span>
+                                    <span className="sd-dispatch-worker-status" style={{ color: STATUS_CFG[w.status]?.color }}>
+                                        {STATUS_CFG[w.status]?.label}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="sd-ai-panel-section-label" style={{ marginTop: 10 }}><Briefcase size={12} /> Open Jobs — drop a worker here</div>
+                        {jobs.length === 0 ? (
+                            <div className="sd-empty-state"><CheckCircle2 size={24} /><p>All jobs assigned</p></div>
+                        ) : jobs.map(job => (
+                            <div
+                                key={job.id}
+                                className={`sd-job-card${draggingJob?.id === job.id ? ' dragging' : ''}${dropJobId === job.id ? ' drop-hover' : ''}`}
+                                draggable
+                                onDragStart={() => handleDragStart(job)}
+                                onDragEnd={handleDragEnd}
+                                onDragOver={e => { e.preventDefault(); if (draggingWorker) setDropJobId(job.id); }}
+                                onDragLeave={() => setDropJobId(null)}
+                                onDrop={() => handleDropWorkerOnJob(job)}
+                            >
+                                <div className="sd-job-top">
+                                    <code className="sd-job-id">{job.id}</code>
+                                    <span className={`sd-job-risk risk-${job.risk.toLowerCase()}`}>{job.risk}</span>
+                                </div>
+                                <div className="sd-job-addr">{job.address}</div>
+                                <div className="sd-job-zone">{job.zone}</div>
+                                <div className="sd-job-eq"><Zap size={11} />{job.equipment}</div>
+                                <div className="sd-job-footer">
+                                    <span className={`sd-priority p-${job.priority.toLowerCase()}`}>{job.priority}</span>
+                                    {draggingWorker
+                                        ? <span className="sd-drag-hint sd-drag-hint--active">drop here</span>
+                                        : <span className="sd-drag-hint">drag worker here</span>
+                                    }
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
 
             {/* TOP BAR */}
             <header className="sd-header">
@@ -439,6 +838,7 @@ export default function SupervisorDashboard() {
                                 ) : alerts.map(a => {
                                     const isGas = a.type === 'AUTO_GAS';
                                     const isSos = a.type === 'SOS' || a.type === 'SOS_MANUAL';
+                                    const gasExplain = isGas ? parseGasExplainability(a) : null;
                                     const cardCss = isSos ? 'sos'
                                         : isGas && a.severity === 'critical' ? 'sos'
                                         : isGas ? 'delay'
@@ -458,6 +858,26 @@ export default function SupervisorDashboard() {
                                             <span className="sd-alert-time">{a.time}</span>
                                         </div>
                                         <p className="sd-alert-msg">{a.msg}</p>
+
+                                        {isGas && gasExplain && (gasExplain.summaryHi || gasExplain.immediateSteps.length > 0) && (
+                                            <div className="sd-alert-explain">
+                                                {gasExplain.summaryHi && (
+                                                    <p className="sd-alert-explain-line">{gasExplain.summaryHi}</p>
+                                                )}
+                                                <div className="sd-alert-explain-meta">
+                                                    {gasExplain.confidence && <span>विश्वास: {gasExplain.confidence}</span>}
+                                                    {a.riskPriority && <span>जोखिम: {riskPriorityHi(a.riskPriority)}</span>}
+                                                </div>
+                                                {gasExplain.immediateSteps.length > 0 && (
+                                                    <ul className="sd-alert-explain-steps">
+                                                        {gasExplain.immediateSteps.slice(0, 2).map((step, idx) => (
+                                                            <li key={`${a.id}-step-${idx}`}>{step}</li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        )}
+
                                         <div className="sd-alert-actions">
                                             {(isSos || (isGas && a.severity === 'critical')) && (
                                                 <button className="sd-btn-danger" onClick={() => setSosModal(workers.find(w => w.id === a.workerId))}>
@@ -560,6 +980,10 @@ export default function SupervisorDashboard() {
                         {/* JOBS */}
                         {activeTab === 'jobs' && (
                             <div className="sd-tab-content">
+                                <button className="sd-ai-rec-btn" onClick={fetchRecommendations}>
+                                    <Zap size={13} /> AI Smart Assign
+                                </button>
+
                                 {/* Workers section — drag these */}
                                 <div className="sd-dispatch-section-label">
                                     <UserCheck size={12} /> Workers — drag onto a job to assign

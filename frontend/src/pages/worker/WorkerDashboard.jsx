@@ -89,34 +89,190 @@ const WEATHER_MSGS = {
     flood_warning: 'बाढ़ की चेतावनी — काम तुरंत बंद करें',
     heatwave:      'अत्यधिक गर्मी के कारण ऑक्सीजन कम हो सकती है',
 };
+const WEATHER_SIGNAL_LABELS = {
+    heavy_rain: 'तेज़ बारिश',
+    thunderstorm: 'तूफानी मौसम',
+    flood_warning: 'बाढ़ का खतरा',
+    heatwave: 'अत्यधिक गर्मी',
+};
 const STANDARD_TIPS = [
     'PPE को सही तरीके से पहनें और फोटो अपलोड करें',
     'पहले ऊपर से गैस टेस्ट और पानी का बहाव चेक करें',
     'किसी भी वक्त घबराहट हो तो SOS दबाएँ — कोई निगरानी नहीं, सिर्फ़ बचाव के लिए',
 ];
+
+function buildLocalConfidence(priority, signals) {
+    const dangerCount  = signals.filter(s => s.severity === 'danger').length;
+    const warningCount = signals.filter(s => s.severity === 'warning').length;
+    const infoCount    = signals.filter(s => s.severity === 'info').length;
+    const base = priority === 'high' ? 72 : priority === 'medium' ? 62 : 84;
+    const score = Math.max(55, Math.min(97, Math.round(base + (dangerCount * 6) + (warningCount * 4) + (infoCount * 2))));
+    const bandHi = score >= 90 ? 'उच्च' : score >= 75 ? 'मध्यम-उच्च' : 'मध्यम';
+    return { score, labelHi: `${score}% (${bandHi})` };
+}
+
+function buildLocalImmediateSteps(priority, signalKeys) {
+    const steps = [];
+    const hasGas = signalKeys.some(k => ['h2s', 'co', 'o2_low', 'ch4'].includes(k));
+    const hasWaterOrWeather = signalKeys.some(k => ['water', 'heavy_rain', 'thunderstorm', 'flood_warning'].includes(k));
+    const hasDepthOrHistory = signalKeys.some(k => ['depth', 'incidents'].includes(k));
+
+    if (priority === 'high') {
+        steps.push('तुरंत निकासी करें और एरिया को कॉर्डन करें');
+    } else if (priority === 'medium') {
+        steps.push('एंट्री रोकें और दोबारा गैस टेस्ट करें');
+    } else {
+        steps.push('काम शुरू रखने से पहले PPE और गैस मीटर दोबारा जांचें');
+    }
+
+    if (hasGas) steps.push('ब्लोअर/वेंटिलेशन चालू करें और 2 मिनट बाद रीडिंग रीचेक करें');
+    if (hasWaterOrWeather) steps.push('पानी का बहाव और ड्रेनेज क्लियरेंस तुरंत सुनिश्चित करें');
+    if (hasDepthOrHistory) steps.push('रेस्क्यू लाइन और स्टैंडबाय टीम तैयार रखें');
+
+    steps.push('सुपरवाइजर को तुरंत अपडेट करें और अनुमति लेकर ही आगे बढ़ें');
+    return [...new Set(steps)].slice(0, 3);
+}
+
+function buildLocalExplainability(priority, signals) {
+    const triggerSignals = signals.map(s => s.label);
+    const topSignals = triggerSignals.slice(0, 3);
+    const actionClause = priority === 'high'
+        ? 'तुरंत बाहर निकलें और आपात प्रोटोकॉल लागू करें'
+        : priority === 'medium'
+            ? 'कार्य रोककर सुरक्षा जांच दोबारा करें'
+            : 'सामान्य सावधानी के साथ कार्य जारी रखें';
+    const summaryHi = topSignals.length > 0
+        ? `${topSignals.join(' + ')} = ${actionClause}`
+        : `सभी संकेत सुरक्षित हैं = ${actionClause}`;
+    const confidence = buildLocalConfidence(priority, signals);
+    return {
+        summaryHi,
+        confidence: confidence.labelHi,
+        confidenceScore: confidence.score,
+        immediateSteps: buildLocalImmediateSteps(priority, signals.map(s => s.key)),
+        triggerSignals,
+    };
+}
+
+function normalizeAdvisoryPayload(payload) {
+    if (!payload) return null;
+    const fallbackExplainability = buildLocalExplainability(payload.priority || 'low', []);
+    const explainability = payload.explainability || fallbackExplainability;
+    const immediateSteps = Array.isArray(explainability.immediateSteps) && explainability.immediateSteps.length > 0
+        ? explainability.immediateSteps
+        : [...STANDARD_TIPS];
+
+    return {
+        ...payload,
+        tips: Array.isArray(payload.tips) ? payload.tips : [...STANDARD_TIPS],
+        explainability: {
+            summaryHi: explainability.summaryHi || fallbackExplainability.summaryHi,
+            confidence: explainability.confidence || fallbackExplainability.confidence,
+            confidenceScore: Number.isFinite(explainability.confidenceScore)
+                ? explainability.confidenceScore
+                : fallbackExplainability.confidenceScore,
+            immediateSteps,
+            triggerSignals: Array.isArray(explainability.triggerSignals)
+                ? explainability.triggerSignals
+                : fallbackExplainability.triggerSignals,
+        },
+    };
+}
+
 function computeLocalAdvisory({ depth = 0, recentIncidents = 0, weather = 'clear', gasReadings = null } = {}) {
     const reasons = [];
-    if (depth > 3)           reasons.push(`मैनहोल बहुत गहरा है (${depth} मीटर — 3 मीटर से अधिक)`);
-    if (recentIncidents > 0) reasons.push(`इस जगह हाल ही में ${recentIncidents} घटना दर्ज हुई है`);
-    const wMsg = WEATHER_MSGS[weather];
-    if (wMsg) reasons.push(wMsg);
-    if (gasReadings) {
-        if (gasReadings.H2S  >= 10)  reasons.push(`H₂S गैस खतरनाक स्तर पर है — ${gasReadings.H2S} ppm`);
-        if (gasReadings.CO   >= 200) reasons.push(`CO गैस खतरनाक स्तर पर है — ${gasReadings.CO} ppm`);
-        if (gasReadings.O2   < 19.5) reasons.push(`ऑक्सीजन का स्तर कम है — ${gasReadings.O2}%`);
-        if (gasReadings.CH4  >= 25)  reasons.push(`मीथेन गैस खतरे के स्तर पर है — ${gasReadings.CH4}% LEL`);
-        if (gasReadings.WATER >= 30) reasons.push(`मैनहोल में पानी भर रहा है — ${gasReadings.WATER} सेंटीमीटर`);
+    const signals = [];
+
+    const addSignal = (reason, key, label, severity = 'warning') => {
+        reasons.push(reason);
+        signals.push({ key, label, severity });
+    };
+
+    if (depth > 3) {
+        addSignal(
+            `मैनहोल बहुत गहरा है (${depth} मीटर — 3 मीटर से अधिक)`,
+            'depth',
+            `अधिक गहराई (${depth}m)`,
+            'warning'
+        );
     }
+    if (recentIncidents > 0) {
+        addSignal(
+            `इस जगह हाल ही में ${recentIncidents} घटना दर्ज हुई है`,
+            'incidents',
+            `${recentIncidents} हालिया घटना`,
+            'warning'
+        );
+    }
+
+    const wMsg = WEATHER_MSGS[weather];
+    if (wMsg) {
+        addSignal(
+            wMsg,
+            weather,
+            WEATHER_SIGNAL_LABELS[weather] || 'मौसम जोखिम',
+            weather === 'flood_warning' || weather === 'thunderstorm' ? 'danger' : 'warning'
+        );
+    }
+
+    if (gasReadings) {
+        if (gasReadings.H2S >= 10) {
+            addSignal(
+                `H₂S गैस खतरनाक स्तर पर है — ${gasReadings.H2S} ppm`,
+                'h2s',
+                `H2S बढ़ रहा है (${gasReadings.H2S} ppm)`,
+                'danger'
+            );
+        }
+        if (gasReadings.CO >= 200) {
+            addSignal(
+                `CO गैस खतरनाक स्तर पर है — ${gasReadings.CO} ppm`,
+                'co',
+                `CO बढ़ रहा है (${gasReadings.CO} ppm)`,
+                'danger'
+            );
+        }
+        if (gasReadings.O2 < 19.5) {
+            addSignal(
+                `ऑक्सीजन का स्तर कम है — ${gasReadings.O2}%`,
+                'o2_low',
+                `ऑक्सीजन कम है (${gasReadings.O2}%)`,
+                'danger'
+            );
+        }
+        if (gasReadings.CH4 >= 25) {
+            addSignal(
+                `मीथेन गैस खतरे के स्तर पर है — ${gasReadings.CH4}% LEL`,
+                'ch4',
+                `मीथेन बढ़ रही है (${gasReadings.CH4}% LEL)`,
+                'danger'
+            );
+        }
+        if (gasReadings.WATER >= 30) {
+            addSignal(
+                `मैनहोल में पानी भर रहा है — ${gasReadings.WATER} सेंटीमीटर`,
+                'water',
+                `पानी का स्तर बढ़ रहा है (${gasReadings.WATER} cm)`,
+                'warning'
+            );
+        }
+    }
+
     const priority = reasons.length >= 2 ? 'high' : reasons.length === 1 ? 'medium' : 'low';
     const isHigh   = priority !== 'low';
-    return {
+    const explainability = buildLocalExplainability(priority, signals);
+
+    return normalizeAdvisoryPayload({
         priority,
         title:   isHigh ? '⚠️ उच्च जोखिम का काम' : 'ℹ️ सामान्य जोखिम',
         reasons,
         tips:    [...STANDARD_TIPS],
-        speak:   isHigh ? `सावधान! ${reasons[0]}. ${STANDARD_TIPS[2]}` : 'सब ठीक है। PPE पहनें और सावधान रहें।',
+        speak:   isHigh
+            ? `सावधान! ${explainability.summaryHi}. ${explainability.immediateSteps[0] || STANDARD_TIPS[2]}`
+            : 'सब ठीक है। PPE पहनें और सावधान रहें।',
+        explainability,
         source:  'local',
-    };
+    });
 }
 
 function getReasonIcon(reason) {
@@ -130,6 +286,16 @@ function getReasonIcon(reason) {
         reason.includes('पानी भर रहा'))                            return '☣️';
     if (reason.includes('घटना'))                                   return '⚠️';
     return '⚠️';
+}
+
+function buildAdvisorySpeechText(currentAdvisory) {
+    if (!currentAdvisory) return '';
+    const explanation = currentAdvisory.explainability?.summaryHi;
+    const firstStep = currentAdvisory.explainability?.immediateSteps?.[0];
+    if (explanation) {
+        return `${explanation}.${firstStep ? ` ${firstStep}` : ''}`;
+    }
+    return currentAdvisory.speak || 'सुरक्षा निर्देश उपलब्ध नहीं हैं';
 }
 
 /*  Swipe-to-Confirm  */
@@ -365,6 +531,15 @@ export default function WorkerDashboard() {
             prevGasStatusRef.current = { ...data.statuses };
             setGasReadings(data);
 
+            const liveAdvisory = computeLocalAdvisory({
+                depth: JOB.depthM,
+                recentIncidents: JOB.recentIncidents,
+                weather: JOB.weather,
+                gasReadings: data.readings,
+            });
+            setAdvisory(liveAdvisory);
+            setAdvisoryVisible(true);
+
             if (hasNewDanger) {
                 playChime('sos');
                 vibrate([100, 50, 200, 50, 300]);
@@ -385,12 +560,13 @@ export default function WorkerDashboard() {
         const handleAdvisory = (data) => {
             // Filter: if advisory is targeted to a specific worker, skip if it's not me
             if (data.workerId !== null && data.workerId !== undefined && data.workerId !== currentUser?.id) return;
-            setAdvisory(data);
+            const normalized = normalizeAdvisoryPayload(data);
+            setAdvisory(normalized);
             setAdvisoryVisible(true);
-            if (data.priority === 'high') {
+            if (normalized.priority === 'high') {
                 playChime('sos');
                 vibrate([100, 50, 200]);
-                speak(data.speak);
+                speak(buildAdvisorySpeechText(normalized));
             }
         };
 
@@ -709,7 +885,7 @@ export default function WorkerDashboard() {
                                     <div className="wd-copilot-actions">
                                         <button
                                             className="wd-copilot-speak-btn"
-                                            onClick={() => speak(advisory.speak)}
+                                            onClick={() => speak(buildAdvisorySpeechText(advisory))}
                                             aria-label="सलाह सुनें"
                                             title="Read aloud in Hindi"
                                         >
@@ -734,8 +910,24 @@ export default function WorkerDashboard() {
                                         ))}
                                     </ul>
                                 )}
+
+                                {advisory.explainability?.summaryHi && (
+                                    <div className="wd-copilot-explain">
+                                        <p className="wd-copilot-summary">{advisory.explainability.summaryHi}</p>
+                                        <div className="wd-copilot-meta">
+                                            <span>विश्वास: {advisory.explainability.confidence}</span>
+                                            {Array.isArray(advisory.explainability.triggerSignals) && advisory.explainability.triggerSignals.length > 0 && (
+                                                <span>{advisory.explainability.triggerSignals.slice(0, 2).join(' • ')}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="wd-copilot-tip-heading">तुरंत कदम</div>
                                 <ul className="wd-copilot-tips">
-                                    {advisory.tips.map((t, i) => (
+                                    {(advisory.explainability?.immediateSteps?.length
+                                        ? advisory.explainability.immediateSteps
+                                        : advisory.tips).map((t, i) => (
                                         <li key={i}>{t}</li>
                                     ))}
                                 </ul>

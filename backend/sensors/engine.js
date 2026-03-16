@@ -6,6 +6,7 @@ const simulator  = require('./simulator');
 const { classify } = require('./thresholds');
 const { workers }  = require('../data/seed');
 const { prependAlert } = require('../routes/alerts');
+const { evaluateRisk } = require('../advisory/evaluateRisk');
 
 const TICK_MS = 1000;
 
@@ -74,6 +75,8 @@ function start(io) {
         const value = readings[gas];
         const unit  = GAS_UNITS[gas];
         const label = GAS_LABELS[gas];
+        const advisory = evaluateRisk({ gasReadings: readings });
+        const explainability = advisory.explainability || null;
 
         const alert = {
           id:       `gas-${worker.id}-${gas}-${Date.now()}`,
@@ -86,10 +89,24 @@ function start(io) {
           severity: alertSeverity,
           msg:      `${label} ${alertSeverity === 'critical' ? 'DANGER' : 'WARNING'}: ${value} ${unit} detected for ${worker.name} at ${worker.job}`,
           time:     'just now',
+          riskPriority: advisory.priority,
+          advisoryTitle: advisory.title,
+          explainability,
+          confidence: explainability?.confidence,
+          immediateSteps: explainability?.immediateSteps,
+          reasoningHi: explainability?.summaryHi,
         };
 
         prependAlert(alert);
         io.emit('auto_alert', alert);
+
+        // Targeted Hindi explainability push for the affected worker.
+        io.emit('live_safety_advisory', {
+          ...advisory,
+          workerId: worker.id,
+          source: 'sensor_auto',
+          triggeredBy: gas,
+        });
 
         console.log(`[Engine] AUTO_ALERT ${alertSeverity.toUpperCase()} — Worker ${worker.id} (${worker.name}): ${label} = ${value} ${unit}`);
       }

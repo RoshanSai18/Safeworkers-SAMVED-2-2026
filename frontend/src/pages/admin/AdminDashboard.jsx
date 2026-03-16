@@ -9,6 +9,7 @@ import {
     MessageSquare, MapPin, Activity, Award, Zap, Building2, ExternalLink, Flag, Lightbulb, Volume2, VolumeX
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
+import { useSocket } from '../../hooks/useSocket';
 import { useNavigate } from 'react-router-dom';
 import './AdminDashboard.css';
 
@@ -113,17 +114,6 @@ const WARD_JOBS_DATA = {
 const WARD_INC_DATA  = { W1:2, W2:6, W3:0, W4:7, W5:4, W6:3, W7:1, W8:2 };
 const WARD_WASTE_PCT = { W1:0.08, W2:0.12, W3:0.25, W4:0.18, W5:0.15, W6:0.05, W7:0.03, W8:0.28 };
 
-const AI_WARD_TEXT = {
-    W1: 'वार्ड W1 का सुरक्षा प्रदर्शन शहर में सर्वश्रेष्ठ में से एक है। PPE अनुपालन दर 96% है और पिछले 30 दिनों में केवल 2 मामूली घटनाएँ दर्ज हुई हैं। हानिकारक कचरे का अनुपात (8%) पूरी तरह सुरक्षित है। सुझाव: W1 की कार्यप्रणाली को अन्य वार्डों के लिए मॉडल के रूप में प्रस्तुत करें और यहाँ के अनुभवी वर्करों को मेंटर के रूप में नियुक्त करें।',
-    W2: 'वार्ड W2 में उच्च जोखिम वाले कार्यों की दर 50% है और 6 घटनाएँ दर्ज हैं। Zone B के मैनहोल औसतन 4.8 मीटर गहरे हैं और H₂S गैस स्तर तीन बार खतरनाक सीमा पार कर चुका है। तत्काल कार्रवाई: 2 मेकेनाइज़्ड जेटिंग मशीन तैनात करें, हर एंट्री से पहले अनिवार्य गैस कैलिब्रेशन लागू करें, और सुपरवाइज़र ओवरराइड अधिकार को सीमित करें।',
-    W3: 'वार्ड W3 में हानिकारक कचरे का अनुपात 25% है, जो स्वीकार्य सीमा (20%) से अधिक है। हालाँकि घटना दर शून्य है, लेकिन दीर्घकालिक रासायनिक संपर्क वर्करों के स्वास्थ्य पर प्रभाव डाल सकता है। सुझाव: एक अलग हानिकारक कचरा संग्रहण वाहन (pH सेंसर सहित) तैनात करें और वर्करों को रासायनिक-प्रतिरोधी सुरक्षा किट प्रदान करें।',
-    W4: 'वार्ड W4 शहर का सबसे उच्च-जोखिम वार्ड है — 80% कार्य उच्च जोखिम श्रेणी में हैं और 7 घटनाएँ दर्ज हैं। यह Zone C के पुराने सीवर नेटवर्क के कारण है जहाँ मैनहोल 5+ मीटर गहरे हैं। अनुशंसित कार्ययोजना: (1) Zone C में ERSU वाहन तुरंत तैनात करें, (2) सभी W4 वर्करों के लिए अनिवार्य गैस-टेस्ट प्रोटोकॉल, (3) एक रोटेशन सिस्टम लागू करें जिससे कोई भी वर्कर सप्ताह में 2 से अधिक उच्च-जोखिम एंट्री न करे।',
-    W5: 'वार्ड W5 में 67% कार्य उच्च जोखिम वाले हैं। Zone D में हालिया मौसमी बारिश के कारण मीथेन गैस का स्तर बढ़ा है। 4 घटनाओं में से 3 सुपरवाइज़र ओवरराइड के बाद हुईं — यह एक गंभीर पैटर्न है। सुझाव: मेकेनाइज़्ड उपकरण के साथ-साथ, W5 के ओवरराइड लॉग को तत्काल समीक्षा के लिए Admin को भेजें।',
-    W6: 'वार्ड W6 का प्रदर्शन संतोषजनक है। तीनों घटनाएँ मामूली प्रकृति की थीं — सभी PPE संबंधित और किसी में गैस खतरा नहीं था। हानिकारक कचरे का स्तर 5% है जो पूरी तरह सुरक्षित है। सुझाव: वर्तमान सुरक्षा प्रथाएँ जारी रखें। PPE अनुपालन सुधार पर ध्यान देकर इन 3 घटनाओं को भी शून्य पर लाया जा सकता है।',
-    W7: 'वार्ड W7 का सुरक्षा स्कोर उत्कृष्ट है — केवल 1 घटना, 0% उच्च-जोखिम कार्य, और न्यूनतम हानिकारक कचरा। यह Zone F के नए सीवर इंफ्रास्ट्रक्चर का परिणाम है। अनुशंसा: W7 की सर्वोत्तम कार्यप्रणाली को दस्तावेज़ीकृत करें और इसे पूरे शहर में Best Practice Guide के रूप में साझा करें।',
-    W8: 'वार्ड W8 में हानिकारक कचरे का अनुपात 28% है — यह शहर में सर्वाधिक है। Zone G में औद्योगिक नाले मिलते हैं जिससे कार्बनिक और रासायनिक कचरे का खतरनाक मिश्रण बनता है। सुझाव: (1) तत्काल हानिकारक कचरा संग्रहण यूनिट स्थापित करें, (2) W8 वर्करों को त्रैमासिक मेडिकल स्क्रीनिंग में प्राथमिकता दें, (3) Zone G के ड्रेनेज मैप को अपडेट करके खतरनाक बिंदुओं को चिह्नित करें।',
-};
-
 function generateWardRecommendations() {
     return WARD_LABELS.map(ward => {
         const jobs          = WARD_JOBS_DATA[ward] || [];
@@ -152,6 +142,170 @@ function generateWardRecommendations() {
 }
 
 const WARD_RECS = generateWardRecommendations();
+
+function buildWardSnapshot(ward) {
+    const jobs = WARD_JOBS_DATA[ward] || [];
+    const totalJobs = jobs.length;
+    const highRiskJobs = jobs.filter(j => String(j.risk || '').toLowerCase().includes('high')).length;
+    const mediumRiskJobs = jobs.filter(j => String(j.risk || '').toLowerCase().includes('medium')).length;
+    const incidentCount = WARD_INC_DATA[ward] || 0;
+    const hazardousWastePct = WARD_WASTE_PCT[ward] || 0;
+
+    const ppeCompliance = Math.max(70, Math.round(98 - incidentCount * 2 - hazardousWastePct * 20));
+
+    const trendSeed = [incidentCount + 1, incidentCount, Math.max(0, incidentCount - 1)];
+
+    return {
+        jobs,
+        totalJobs,
+        highRiskJobs,
+        mediumRiskJobs,
+        incidentCount,
+        hazardousWastePct,
+        ppeCompliance,
+        incidentTrend: trendSeed,
+    };
+}
+
+function renderAiMarkdown(text) {
+    if (!text) return null;
+
+    const lines = String(text).split(/\r?\n/);
+    const elements = [];
+    let listItems = [];
+
+    const flushList = () => {
+        if (listItems.length > 0) {
+            elements.push(
+                <ul key={`ds-md-ul-${elements.length}`} className="ds-ai-md-list">
+                    {listItems}
+                </ul>
+            );
+            listItems = [];
+        }
+    };
+
+    const renderInline = (value, idx) => {
+        const parts = [];
+        const regex = /\*\*(.+?)\*\*/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = regex.exec(value)) !== null) {
+            if (match.index > lastIndex) {
+                parts.push(value.slice(lastIndex, match.index));
+            }
+            parts.push(
+                <strong key={`ds-md-b-${idx}-${match.index}`}>
+                    {match[1]}
+                </strong>
+            );
+            lastIndex = regex.lastIndex;
+        }
+
+        if (lastIndex < value.length) {
+            parts.push(value.slice(lastIndex));
+        }
+
+        return parts.length > 0 ? parts : value;
+    };
+
+    lines.forEach((line, index) => {
+        const trimmed = line.trim();
+
+        if (!trimmed) {
+            flushList();
+            elements.push(<div key={`ds-md-space-${index}`} className="ds-ai-md-space" />);
+            return;
+        }
+
+        const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch) {
+            flushList();
+            const level = headingMatch[1].length;
+            const Tag = level <= 2 ? 'h4' : 'h5';
+            elements.push(
+                <Tag key={`ds-md-h-${index}`} className="ds-ai-md-heading">
+                    {renderInline(headingMatch[2], index)}
+                </Tag>
+            );
+            return;
+        }
+
+        const bulletMatch = trimmed.match(/^[-*•]\s+(.+)$/);
+        if (bulletMatch) {
+            listItems.push(
+                <li key={`ds-md-li-${index}`}>
+                    {renderInline(bulletMatch[1], index)}
+                </li>
+            );
+            return;
+        }
+
+        const numberedMatch = trimmed.match(/^\d+[.)]\s+(.+)$/);
+        if (numberedMatch) {
+            listItems.push(
+                <li key={`ds-md-li-${index}`}>
+                    {renderInline(numberedMatch[1], index)}
+                </li>
+            );
+            return;
+        }
+
+        flushList();
+        elements.push(
+            <p key={`ds-md-p-${index}`} className="ds-ai-md-paragraph">
+                {renderInline(trimmed, index)}
+            </p>
+        );
+    });
+
+    flushList();
+    return elements;
+}
+
+function normalizeIncidentSeverity(severity = 'low') {
+    const v = String(severity || '').toLowerCase();
+    if (v === 'critical' || v === 'high') return 'high';
+    if (v === 'warning' || v === 'medium') return 'medium';
+    return 'low';
+}
+
+function buildLiveIncidentFromPostmortem(event = {}) {
+    const ts = event.generatedAt ? new Date(event.generatedAt) : new Date();
+    const date = Number.isNaN(ts.getTime()) ? new Date().toISOString().slice(0, 10) : ts.toISOString().slice(0, 10);
+    const time = event.eventTime || (Number.isNaN(ts.getTime()) ? new Date().toTimeString().slice(0, 5) : ts.toTimeString().slice(0, 5));
+    const zone = event.zone || 'Zone N/A';
+    const location = event.location || 'Field location';
+    const eventType = String(event.eventType || '').toUpperCase();
+    const hazard = String(event.hazard || '').trim();
+
+    return {
+        id: `AUTO-${event.incidentId || event.id || Date.now()}`,
+        date,
+        time,
+        worker: event.workerName || 'Unknown Worker',
+        badge: event.badge || `SW-${String(event.workerId || 'NA')}`,
+        location: `${location} · ${zone}`,
+        type: eventType === 'SOS_MANUAL'
+            ? 'Auto Postmortem — Manual SOS'
+            : `Auto Postmortem — ${hazard || 'Hazard Report'}`,
+        supervisor: 'Auto Incident Engine',
+        overrideUsed: false,
+        ppeUploaded: false,
+        gasTest: false,
+        severity: normalizeIncidentSeverity(event.severity),
+        gasAtIncident: null,
+        source: 'auto',
+        postmortem: {
+            timeline: Array.isArray(event.timeline) ? event.timeline : [],
+            probableRootCause: String(event.probableRootCause || ''),
+            correctiveActions: Array.isArray(event.correctiveActions) ? event.correctiveActions : [],
+            confidence: String(event.confidence || 'मध्यम'),
+            summaryMarkdown: String(event.summaryMarkdown || ''),
+        },
+    };
+}
 
 /* ── Safe Route & Team Planning — today's assignments ─────── */
 const TODAY_ASSIGNMENTS = [
@@ -274,6 +428,7 @@ function exportCSV(rows) {
 export default function AdminDashboard() {
     const { currentUser, logout } = useAuth();
     const navigate = useNavigate();
+    const { socket } = useSocket();
 
     const [search, setSearch] = useState('');
     const [dateFrom, setDateFrom] = useState('');
@@ -284,6 +439,7 @@ export default function AdminDashboard() {
     const [smsSent,          setSmsSent]          = useState(false);
     const [selectedIncident, setSelectedIncident] = useState(null);
     const [flaggedSups,      setFlaggedSups]      = useState(new Set());
+    const [liveIncidents,    setLiveIncidents]    = useState([]);
     const [sanFilter,        setSanFilter]        = useState(false);
     const [selectedLeaders,  setSelectedLeaders]  = useState(new Set());
     const [jlgSubmitted,     setJlgSubmitted]     = useState(false);
@@ -292,27 +448,84 @@ export default function AdminDashboard() {
     const [aiStates,         setAiStates]         = useState({});
     const [speakState,       setSpeakState]       = useState({ ward: null });
     const typingRefs = useRef({});
+    const planCopilotTypingRef = useRef(null);
 
     useEffect(() => {
         const refs = typingRefs.current;
-        return () => { Object.values(refs).forEach(clearTimeout); };
+        return () => {
+            Object.values(refs).forEach(clearTimeout);
+            if (planCopilotTypingRef.current) clearTimeout(planCopilotTypingRef.current);
+        };
     }, []);
 
-    const startAI = (ward) => {
-        setAiStates(prev => ({ ...prev, [ward]: { phase: 'loading', text: '' } }));
-        setTimeout(() => {
-            const full = AI_WARD_TEXT[ward] || '';
+    useEffect(() => {
+        if (!socket) return;
+
+        const onAutoPostmortem = (event) => {
+            const next = buildLiveIncidentFromPostmortem(event);
+            setLiveIncidents((prev) => [next, ...prev.filter(i => i.id !== next.id)].slice(0, 12));
+        };
+
+        socket.on('auto_incident_postmortem', onAutoPostmortem);
+        return () => {
+            socket.off('auto_incident_postmortem', onAutoPostmortem);
+        };
+    }, [socket]);
+
+    const startAI = async (ward) => {
+        if (typingRefs.current[ward]) clearTimeout(typingRefs.current[ward]);
+
+        setAiStates(prev => ({
+            ...prev,
+            [ward]: { phase: 'loading', text: '', fullText: '', evidence: null, error: '' },
+        }));
+
+        try {
+            const res = await fetch('http://localhost:3001/api/ai/ward-intelligence', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ward,
+                    lang: 'hi',
+                    wardSnapshot: buildWardSnapshot(ward),
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Failed to generate AI analysis');
+
+            const full = data.analysis || '';
+            const evidence = data.evidence || null;
+
             let i = 0;
             const tick = () => {
                 i++;
                 setAiStates(prev => ({
                     ...prev,
-                    [ward]: { phase: i < full.length ? 'typing' : 'done', text: full.slice(0, i) },
+                    [ward]: {
+                        phase: i < full.length ? 'typing' : 'done',
+                        text: full.slice(0, i),
+                        fullText: full,
+                        evidence,
+                        error: '',
+                    },
                 }));
-                if (i < full.length) typingRefs.current[ward] = setTimeout(tick, 20);
+                if (i < full.length) typingRefs.current[ward] = setTimeout(tick, 16);
             };
-            typingRefs.current[ward] = setTimeout(tick, 20);
-        }, 1500);
+            typingRefs.current[ward] = setTimeout(tick, 16);
+        } catch (err) {
+            setAiStates(prev => ({
+                ...prev,
+                [ward]: {
+                    phase: 'error',
+                    text: '',
+                    fullText: '',
+                    evidence: null,
+                    error: err.message || 'AI analysis failed',
+                },
+            }));
+        }
     };
 
     const toggleSpeak = (ward) => {
@@ -321,9 +534,14 @@ export default function AdminDashboard() {
             setSpeakState({ ward: null });
             return;
         }
+
+        const state = aiStates[ward];
+        const speakText = (state?.fullText || state?.text || '').trim();
+        if (!speakText) return;
+
         window.speechSynthesis.cancel();
-        const msg = new SpeechSynthesisUtterance(AI_WARD_TEXT[ward] || '');
-        msg.lang = 'hi-IN';
+        const msg = new SpeechSynthesisUtterance(speakText);
+        msg.lang = /[\u0900-\u097F]/.test(speakText) ? 'hi-IN' : 'en-IN';
         msg.rate = 0.88;
         msg.onend = () => setSpeakState(s => s.ward === ward ? { ward: null } : s);
         window.speechSynthesis.speak(msg);
@@ -335,6 +553,7 @@ export default function AdminDashboard() {
     const [planIssues,    setPlanIssues]    = useState(null);   // null = not yet run
     const [swapMap,       setSwapMap]       = useState({});
     const [planConfirmed, setPlanConfirmed] = useState(false);
+    const [planCopilot,   setPlanCopilot]   = useState(null);
 
     const runSafetyCheck = () => {
         setPlanIssues(null);
@@ -351,6 +570,64 @@ export default function AdminDashboard() {
             .then(data => setPlanIssues(data.issues))
             .catch(() => setPlanIssues(evaluatePlanLocally(TODAY_ASSIGNMENTS)))
             .finally(() => setPlanModal(true));
+    };
+
+    const runPlanCopilot = async () => {
+        if (planCopilotTypingRef.current) clearTimeout(planCopilotTypingRef.current);
+
+        setPlanCopilot({
+            phase: 'loading',
+            text: '',
+            fullText: '',
+            evidence: null,
+            actions: [],
+            error: '',
+        });
+
+        try {
+            const res = await fetch('http://localhost:3001/api/plan/copilot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    assignments: TODAY_ASSIGNMENTS,
+                    issues: Array.isArray(planIssues) ? planIssues : undefined,
+                    lang: 'hi',
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Failed to generate plan copilot analysis');
+
+            const full = data.analysis || '';
+            const evidence = data.evidence || null;
+            const actions = Array.isArray(data.actions) ? data.actions : [];
+
+            let i = 0;
+            const tick = () => {
+                i++;
+                setPlanCopilot({
+                    phase: i < full.length ? 'typing' : 'done',
+                    text: full.slice(0, i),
+                    fullText: full,
+                    evidence,
+                    actions,
+                    error: '',
+                });
+                if (i < full.length) planCopilotTypingRef.current = setTimeout(tick, 14);
+            };
+
+            planCopilotTypingRef.current = setTimeout(tick, 14);
+        } catch (err) {
+            setPlanCopilot({
+                phase: 'error',
+                text: '',
+                fullText: '',
+                evidence: null,
+                actions: [],
+                error: err.message || 'AI plan copilot failed',
+            });
+        }
     };
 
     const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
@@ -375,6 +652,10 @@ export default function AdminDashboard() {
     const filteredLeaders = useMemo(
         () => sanFilter ? LEADERBOARD.filter(w => w.ppeCompliance === 100) : LEADERBOARD,
         [sanFilter]
+    );
+    const incidentFeed = useMemo(
+        () => [...liveIncidents, ...INCIDENTS],
+        [liveIncidents]
     );
 
     return (
@@ -551,6 +832,14 @@ export default function AdminDashboard() {
                                                     <span className="ds-spinner"/>
                                                     <span className="ds-loading-text">AI विश्लेषण कर रहा है…</span>
                                                 </div>
+                                            ) : ai.phase === 'error' ? (
+                                                <div className="ds-ai-error">
+                                                    <AlertTriangle size={12}/>
+                                                    <span>{ai.error || 'AI analysis failed'}</span>
+                                                    <button className="ds-ai-btn" onClick={() => startAI(rec.ward)}>
+                                                        <Zap size={11}/> Retry
+                                                    </button>
+                                                </div>
                                             ) : (
                                                 <div className="ds-ai-response">
                                                     <div className="ds-ai-label-row">
@@ -566,10 +855,38 @@ export default function AdminDashboard() {
                                                             }
                                                         </button>
                                                     </div>
-                                                    <p className="ds-ai-text">
-                                                        {ai.text}
+                                                    {ai.evidence && (
+                                                        <div className="ds-ai-evidence-grid">
+                                                            <div className="ds-ai-evidence-item">
+                                                                <span className="ds-ai-evidence-k">Risk Index</span>
+                                                                <span className="ds-ai-evidence-v">{ai.evidence.riskIndex}/100</span>
+                                                            </div>
+                                                            <div className="ds-ai-evidence-item">
+                                                                <span className="ds-ai-evidence-k">Priority</span>
+                                                                <span className="ds-ai-evidence-v">{ai.evidence.actionPriority || 'monitor'}</span>
+                                                            </div>
+                                                            <div className="ds-ai-evidence-item">
+                                                                <span className="ds-ai-evidence-k">High-Risk</span>
+                                                                <span className="ds-ai-evidence-v">{ai.evidence.highRiskRatioPct}%</span>
+                                                            </div>
+                                                            <div className="ds-ai-evidence-item">
+                                                                <span className="ds-ai-evidence-k">Incidents</span>
+                                                                <span className="ds-ai-evidence-v">{ai.evidence.incidentCount}</span>
+                                                            </div>
+                                                            <div className="ds-ai-evidence-item">
+                                                                <span className="ds-ai-evidence-k">PPE</span>
+                                                                <span className="ds-ai-evidence-v">{ai.evidence.ppeCompliance}%</span>
+                                                            </div>
+                                                            <div className="ds-ai-evidence-item">
+                                                                <span className="ds-ai-evidence-k">Haz Waste</span>
+                                                                <span className="ds-ai-evidence-v">{ai.evidence.hazardousWastePctValue}%</span>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    <div className="ds-ai-text">
+                                                        {renderAiMarkdown(ai.text)}
                                                         {ai.phase === 'typing' && <span className="ds-cursor">|</span>}
-                                                    </p>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -791,7 +1108,7 @@ export default function AdminDashboard() {
                                 </div>
                             </div>
                             <div className="ad-incident-list">
-                                {INCIDENTS.map(inc=>(
+                                {incidentFeed.map(inc=>(
                                     <div key={inc.id}
                                         className={`ad-incident-row sev-row-${inc.severity}${selectedIncident?.id===inc.id?' expanded':''}`}
                                         onClick={()=>setSelectedIncident(selectedIncident?.id===inc.id ? null : inc)}>
@@ -804,6 +1121,9 @@ export default function AdminDashboard() {
                                                 </div>
                                             </div>
                                             <div className="ad-inc-right">
+                                                {inc.source === 'auto' && (
+                                                    <span className="ad-auto-badge"><Zap size={12}/> Auto Postmortem</span>
+                                                )}
                                                 {inc.overrideUsed && <span className="ad-override-badge">⚠ Override Used</span>}
                                                 <span className="ad-inc-chevron">{selectedIncident?.id===inc.id?'▲':'▼'}</span>
                                             </div>
@@ -811,12 +1131,22 @@ export default function AdminDashboard() {
                                         {selectedIncident?.id===inc.id && (
                                             <div className="ad-incident-detail" onClick={e=>e.stopPropagation()}>
                                                 <div className="ad-inc-detail-grid">
-                                                    <div className="ad-inc-det-card">
-                                                        <div className="ad-inc-det-title">Pre-Entry Gate Log</div>
-                                                        <div className="ad-inc-det-row"><span>PPE Photo Uploaded</span><span className={`ad-tl ${inc.ppeUploaded?'tl-green':'tl-red'}`}>{inc.ppeUploaded?'✓ Uploaded':'✗ Missing'}</span></div>
-                                                        <div className="ad-inc-det-row"><span>Gas Reading Confirmed</span><span className={`ad-tl ${inc.gasTest?'tl-green':'tl-red'}`}>{inc.gasTest?'✓ Safe confirmed':'✗ Not confirmed'}</span></div>
-                                                        <div className="ad-inc-det-row"><span>Supervisor Override Used</span><span className={`ad-tl ${inc.overrideUsed?'tl-red':'tl-green'}`}>{inc.overrideUsed?'✗ Yes — bypass detected':'✓ No'}</span></div>
-                                                    </div>
+                                                    {inc.source === 'auto' ? (
+                                                        <div className="ad-inc-det-card">
+                                                            <div className="ad-inc-det-title">Auto Signal Snapshot</div>
+                                                            <div className="ad-inc-det-row"><span>Event Type</span><strong>{inc.type}</strong></div>
+                                                            <div className="ad-inc-det-row"><span>Severity</span><span className={`ad-sev-badge sev-${inc.severity}`}>{String(inc.severity || '').toUpperCase()}</span></div>
+                                                            <div className="ad-inc-det-row"><span>Hazard</span><strong>{inc.type.includes('Hazard') ? inc.type.replace('Auto Postmortem — ', '') : 'SOS'}</strong></div>
+                                                            <div className="ad-inc-det-row"><span>AI Confidence</span><strong>{inc.postmortem?.confidence || 'मध्यम'}</strong></div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="ad-inc-det-card">
+                                                            <div className="ad-inc-det-title">Pre-Entry Gate Log</div>
+                                                            <div className="ad-inc-det-row"><span>PPE Photo Uploaded</span><span className={`ad-tl ${inc.ppeUploaded?'tl-green':'tl-red'}`}>{inc.ppeUploaded?'✓ Uploaded':'✗ Missing'}</span></div>
+                                                            <div className="ad-inc-det-row"><span>Gas Reading Confirmed</span><span className={`ad-tl ${inc.gasTest?'tl-green':'tl-red'}`}>{inc.gasTest?'✓ Safe confirmed':'✗ Not confirmed'}</span></div>
+                                                            <div className="ad-inc-det-row"><span>Supervisor Override Used</span><span className={`ad-tl ${inc.overrideUsed?'tl-red':'tl-green'}`}>{inc.overrideUsed?'✗ Yes — bypass detected':'✓ No'}</span></div>
+                                                        </div>
+                                                    )}
                                                     <div className="ad-inc-det-card">
                                                         <div className="ad-inc-det-title">Incident Context</div>
                                                         <div className="ad-inc-det-row"><span>Location</span><strong>{inc.location}</strong></div>
@@ -825,6 +1155,25 @@ export default function AdminDashboard() {
                                                         <div className="ad-inc-det-row"><span>Type</span><strong>{inc.type}</strong></div>
                                                     </div>
                                                 </div>
+                                                {inc.postmortem && (
+                                                    <div className="ad-inc-postmortem">
+                                                        <div className="ad-inc-det-title">Auto Incident Postmortem</div>
+                                                        <div className="ad-inc-postmortem-text">
+                                                            {renderAiMarkdown(inc.postmortem.summaryMarkdown || '')}
+                                                        </div>
+                                                        {Array.isArray(inc.postmortem.correctiveActions) && inc.postmortem.correctiveActions.length > 0 && (
+                                                            <div className="ad-inc-postmortem-actions">
+                                                                {inc.postmortem.correctiveActions.slice(0, 3).map((a, idx) => (
+                                                                    <div key={`pm-${inc.id}-${idx}`} className="ad-inc-postmortem-action">
+                                                                        <span className="ad-inc-postmortem-action-label">A{idx + 1}</span>
+                                                                        <span className="ad-inc-postmortem-action-text">{a.action}</span>
+                                                                        <span className="ad-inc-postmortem-owner">Owner: {a.owner} · Due: {a.due}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 {inc.gasAtIncident && (
                                                     <div className="ad-inc-gas-section">
                                                         <div className="ad-inc-det-title">Gas Readings at Incident</div>
@@ -944,9 +1293,14 @@ export default function AdminDashboard() {
                                         <AlertTriangle size={11}/> {TODAY_ASSIGNMENTS.filter(a=>a.risk==='High-risk').length} High-Risk
                                     </span>
                                 </div>
-                                <button className="ad-plan-check-btn" onClick={runSafetyCheck}>
-                                    <Shield size={14}/> Safety Check करें
-                                </button>
+                                <div className="ad-plan-actions">
+                                    <button className="ad-plan-check-btn" onClick={runSafetyCheck}>
+                                        <Shield size={14}/> Safety Check करें
+                                    </button>
+                                    <button className="ad-plan-ai-btn" onClick={runPlanCopilot}>
+                                        <Zap size={14}/> AI Plan Co-Pilot
+                                    </button>
+                                </div>
                             </div>
                             <div className="ad-table-wrap">
                                 <table className="ad-table">
@@ -996,6 +1350,55 @@ export default function AdminDashboard() {
                                     </tbody>
                                 </table>
                             </div>
+                            {planCopilot && (
+                                <div className="ad-plan-ai-panel">
+                                    {planCopilot.phase === 'loading' ? (
+                                        <div className="ad-plan-ai-loading">
+                                            <span className="ds-spinner"/>
+                                            <span>AI deployment optimization तैयार कर रहा है…</span>
+                                        </div>
+                                    ) : planCopilot.phase === 'error' ? (
+                                        <div className="ad-plan-ai-error">
+                                            <AlertTriangle size={13}/>
+                                            <span>{planCopilot.error || 'AI plan copilot failed'}</span>
+                                            <button className="ad-plan-ai-btn" onClick={runPlanCopilot}>
+                                                <Zap size={12}/> Retry
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="ad-plan-ai-head">
+                                                <div className="ad-plan-ai-title"><Zap size={12}/> AI Route Co-Pilot</div>
+                                                {planCopilot.evidence && (
+                                                    <span className="ad-plan-ai-risk">Risk {planCopilot.evidence.riskScore}/100</span>
+                                                )}
+                                            </div>
+
+                                            {planCopilot.evidence && (
+                                                <div className="ad-plan-ai-evidence">
+                                                    <span className="ad-plan-ai-chip">Issues {planCopilot.evidence.issuesTotal}</span>
+                                                    <span className="ad-plan-ai-chip">High Sev {planCopilot.evidence.highSeverityIssues}</span>
+                                                    <span className="ad-plan-ai-chip">Overload {planCopilot.evidence.overloadedWorkers}</span>
+                                                    <span className="ad-plan-ai-chip">Fatigue {planCopilot.evidence.fatigueWorkers}</span>
+                                                </div>
+                                            )}
+
+                                            {Array.isArray(planCopilot.actions) && planCopilot.actions.length > 0 && (
+                                                <ul className="ad-plan-ai-actions">
+                                                    {planCopilot.actions.map((action, idx) => (
+                                                        <li key={`${action.id || 'action'}-${idx}`}>{action.message}</li>
+                                                    ))}
+                                                </ul>
+                                            )}
+
+                                            <div className="ad-plan-ai-text">
+                                                {renderAiMarkdown(planCopilot.text)}
+                                                {planCopilot.phase === 'typing' && <span className="ds-cursor">|</span>}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
                             {planConfirmed && (
                                 <div className="ad-plan-deployed-bar">
                                     <CheckCircle2 size={14}/>

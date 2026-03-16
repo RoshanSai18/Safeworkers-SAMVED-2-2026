@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -7,11 +8,16 @@ const workersRouter = require('./routes/workers');
 const jobsRouter    = require('./routes/jobs');
 const alertsRouter  = require('./routes/alerts');
 const engine        = require('./sensors/engine');
-const { workers } = require('./data/seed');
+const { workers, jobs } = require('./data/seed');
 const simulator     = require('./sensors/simulator');
 const { evaluateRisk, buildWeatherAdvisory } = require('./advisory/evaluateRisk');
 const { buildSafetyProfile }                 = require('./controllers/safetyProfile');
+const { buildIncidentPostmortem }            = require('./controllers/incidentPostmortem');
 const { evaluateTodaysPlan }                 = require('./utils/evaluatePlan');
+const { getRecommendations }                 = require('./controllers/recommend');
+const { buildCounterfactualSimulation }      = require('./controllers/counterfactual');
+const { getWardIntelligence }                = require('./controllers/wardIntelligence');
+const { getPlanCopilot }                     = require('./controllers/planCopilot');
 
 const PORT             = 3001;
 const FRONTEND_ORIGINS = ['http://localhost:5173', 'http://localhost:5174'];
@@ -32,22 +38,55 @@ const io = new Server(httpServer, {
 io.on('connection', (socket) => {
   console.log(`[Socket] Client connected:    ${socket.id}`);
 
+  function emitIncidentPostmortem(eventContext, lang = 'hi') {
+    buildIncidentPostmortem(eventContext, lang)
+      .then((postmortem) => {
+        io.emit('auto_incident_postmortem', {
+          id: `pm-${Date.now()}`,
+          ...eventContext,
+          ...postmortem,
+          generatedAt: new Date().toISOString(),
+        });
+      })
+      .catch((err) => {
+        console.error('[Postmortem] Error:', err.message);
+      });
+  }
+
   // Worker → Server → Supervisor: manual SOS button press
   socket.on('sos_manual', (data) => {
     console.log(`[Socket] Manual SOS from worker ${data.workerId}`);
     const worker = workers.find(w => w.id === data.workerId);
+    const activeJob = worker?.job && worker.job !== '—' ? jobs.find(j => j.id === worker.job) : null;
+    const alertId = `sos-manual-${Date.now()}`;
+
     if (worker) {
       worker.status = 'SOS';
       io.emit('worker_status_change', { workerId: data.workerId, status: 'SOS', name: worker.name });
     }
+
     io.emit('auto_alert', {
-      id:         `sos-manual-${Date.now()}`,
+      id:         alertId,
       type:       'SOS_MANUAL',
       workerId:   data.workerId,
       workerName: data.workerName,
       msg:        `Manual SOS triggered by ${data.workerName || `Worker ${data.workerId}`}`,
       severity:   'critical',
       time:       'just now',
+    });
+
+    emitIncidentPostmortem({
+      incidentId: alertId,
+      eventType: 'SOS_MANUAL',
+      severity: 'critical',
+      workerId: data.workerId,
+      workerName: data.workerName || worker?.name || `Worker ${data.workerId}`,
+      badge: worker?.badge || 'N/A',
+      zone: activeJob?.zone || 'Zone N/A',
+      location: activeJob?.address || worker?.address || 'Field location',
+      eventTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      hazard: '',
+      alertMessage: `Manual SOS triggered by ${data.workerName || worker?.name || `Worker ${data.workerId}`}`,
     });
   });
 
@@ -82,14 +121,31 @@ io.on('connection', (socket) => {
   socket.on('hazard_report', (data) => {
     console.log(`[Socket] Hazard report from worker ${data.workerId}: ${data.hazard}`);
     const worker = workers.find(w => w.id === data.workerId);
+    const activeJob = worker?.job && worker.job !== '—' ? jobs.find(j => j.id === worker.job) : null;
+    const alertId = `haz-${Date.now()}`;
+
     io.emit('auto_alert', {
-      id:         `haz-${Date.now()}`,
+      id:         alertId,
       type:       'HAZARD',
       workerId:   data.workerId,
       workerName: data.workerName || (worker && worker.name),
       msg:        `${data.hazard} reported by ${data.workerName || (worker && worker.name) || `Worker ${data.workerId}`}`,
       severity:   'warning',
       time:       'just now',
+    });
+
+    emitIncidentPostmortem({
+      incidentId: alertId,
+      eventType: 'HAZARD',
+      severity: 'medium',
+      workerId: data.workerId,
+      workerName: data.workerName || worker?.name || `Worker ${data.workerId}`,
+      badge: worker?.badge || 'N/A',
+      zone: activeJob?.zone || 'Zone N/A',
+      location: activeJob?.address || worker?.address || 'Field location',
+      eventTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      hazard: data.hazard || '',
+      alertMessage: `${data.hazard} reported by ${data.workerName || worker?.name || `Worker ${data.workerId}`}`,
     });
   });
 
@@ -158,6 +214,71 @@ app.post('/api/plan/evaluate', (req, res) => {
   const issues = evaluateTodaysPlan(assignments);
   console.log(`[Plan] Evaluated ${assignments.length} assignments — ${issues.length} issue(s) found`);
   res.json({ issues });
+});
+
+// POST /api/plan/copilot
+// Body: { assignments: [...], issues?: [...], lang?: 'en'|'hi' }
+// Generates AI-assisted optimization guidance for today's deployment plan.
+app.post('/api/plan/copilot', async (req, res) => {
+  try {
+    const result = await getPlanCopilot(req.body ?? {});
+    res.json(result);
+  } catch (err) {
+    console.error('[Plan Copilot] Error:', err.message);
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Failed to generate plan copilot analysis',
+    });
+  }
+});
+
+// POST /api/recommendations
+// AI-generated worker-to-job assignment recommendations
+// based on proximity, worker status, job risk, and safety rules.
+app.post('/api/recommendations', async (req, res) => {
+  try {
+    const { lang } = req.body ?? {};
+    const result = await getRecommendations(lang || 'en');
+    res.json(result);
+  } catch (err) {
+    console.error('[Recommendations] Error:', err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate recommendations',
+    });
+  }
+});
+
+// POST /api/recommendations/simulate
+// Body: { workerId, jobId, lang?, workers?, jobs? }
+// Simulates "what-if" assignment risk for supervisor decision support.
+app.post('/api/recommendations/simulate', async (req, res) => {
+  try {
+    const result = await buildCounterfactualSimulation(req.body ?? {});
+    res.json(result);
+  } catch (err) {
+    console.error('[Counterfactual] Error:', err.message);
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Failed to simulate assignment',
+    });
+  }
+});
+
+// POST /api/ai/ward-intelligence
+// Body: { ward, lang?, wardSnapshot? }
+// Generates evidence-based ward action analysis for admin dashboard.
+app.post('/api/ai/ward-intelligence', async (req, res) => {
+  try {
+    const result = await getWardIntelligence(req.body ?? {});
+    res.json(result);
+  } catch (err) {
+    console.error('[Ward Intelligence] Error:', err.message);
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Failed to generate ward analysis',
+    });
+  }
 });
 
 // Start sensor tick loop (no-op stub until Phase 1 fills it in)

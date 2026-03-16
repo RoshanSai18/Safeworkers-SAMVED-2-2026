@@ -10,10 +10,10 @@ const workers = [
 ];
 
 const jobs = [
-  { id: 'MH-4420', address: 'Lal Bazaar, Gate 7',      zone: 'Zone C', risk: 'HIGH',   priority: 'Urgent', equipment: 'Breathing Apparatus, Gas Meter', depth: 4.8, recentIncidents: 2, weather: 'heavy_rain' },
-  { id: 'MH-2215', address: 'Shivaji Colony, Main Rd', zone: 'Zone A', risk: 'MEDIUM', priority: 'Normal', equipment: 'Standard PPE, Safety Rope',      depth: 2.1, recentIncidents: 0, weather: 'clear'      },
-  { id: 'MH-0078', address: 'Station Rd, Junction 3',  zone: 'Zone B', risk: 'LOW',    priority: 'Low',    equipment: 'Standard PPE',                   depth: 1.5, recentIncidents: 0, weather: 'clear'      },
-  { id: 'MH-5501', address: 'Park Lane, Sector 9',     zone: 'Zone D', risk: 'MEDIUM', priority: 'Normal', equipment: 'Gas Meter, Standard PPE',         depth: 3.2, recentIncidents: 1, weather: 'cloudy'     },
+  { id: 'MH-4420', address: 'Lal Bazaar, Gate 7',      zone: 'Zone C', risk: 'HIGH',   priority: 'Urgent', equipment: 'Breathing Apparatus, Gas Meter', depth: 4.8, recentIncidents: 2, weather: 'heavy_rain', lat: 19.0830, lng: 72.8810 },
+  { id: 'MH-2215', address: 'Shivaji Colony, Main Rd', zone: 'Zone A', risk: 'MEDIUM', priority: 'Normal', equipment: 'Standard PPE, Safety Rope',      depth: 2.1, recentIncidents: 0, weather: 'clear',      lat: 19.0720, lng: 72.8630 },
+  { id: 'MH-0078', address: 'Station Rd, Junction 3',  zone: 'Zone B', risk: 'LOW',    priority: 'Low',    equipment: 'Standard PPE',                   depth: 1.5, recentIncidents: 0, weather: 'clear',      lat: 19.0900, lng: 72.8700 },
+  { id: 'MH-5501', address: 'Park Lane, Sector 9',     zone: 'Zone D', risk: 'MEDIUM', priority: 'Normal', equipment: 'Gas Meter, Standard PPE',         depth: 3.2, recentIncidents: 1, weather: 'cloudy',     lat: 19.0680, lng: 72.8920 },
 ];
 
 module.exports = { workers, jobs };
