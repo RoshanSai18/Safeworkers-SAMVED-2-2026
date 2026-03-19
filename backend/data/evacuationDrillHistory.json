@@ -1,1 +1,115 @@
-[]
+[
+  {
+    "id": "drill-1773908839650",
+    "drillType": "EMERGENCY_EVACUATION",
+    "startedAt": "2026-03-19T08:27:19.650Z",
+    "completedAt": null,
+    "simulatedZone": "Zone C",
+    "targetWorkers": [
+      {
+        "workerId": 2,
+        "workerName": "Suresh Babu",
+        "badge": "SW-018",
+        "status": "IN_MANHOLE",
+        "zone": "Zone A",
+        "evacuationSec": 100
+      },
+      {
+        "workerId": 5,
+        "workerName": "Kamla Singh",
+        "badge": "SW-007",
+        "status": "IN_MANHOLE",
+        "zone": "Zone C",
+        "evacuationSec": 91
+      },
+      {
+        "workerId": 1,
+        "workerName": "Ravi Kumar",
+        "badge": "SW-041",
+        "status": "DELAYED",
+        "zone": "Zone C",
+        "evacuationSec": 118
+      },
+      {
+        "workerId": 3,
+        "workerName": "Meena Devi",
+        "badge": "SW-029",
+        "status": "DELAYED",
+        "zone": "Zone B",
+        "evacuationSec": 94
+      }
+    ],
+    "targetCount": 4,
+    "totalEvacuationSec": 118,
+    "targetSec": 90,
+    "supervisorResponseSec": null,
+    "responseChain": [
+      {
+        "step": "Simulated SOS triggered in Zone C",
+        "atSec": 0
+      },
+      {
+        "step": "Supervisor acknowledges emergency protocol",
+        "atSec": 26
+      },
+      {
+        "step": "Dispatch relay confirms evacuation command",
+        "atSec": 53
+      },
+      {
+        "step": "Kamla Singh evacuated from Zone C",
+        "atSec": 91
+      },
+      {
+        "step": "Meena Devi evacuated from Zone B",
+        "atSec": 94
+      },
+      {
+        "step": "Suresh Babu evacuated from Zone A",
+        "atSec": 100
+      },
+      {
+        "step": "Ravi Kumar evacuated from Zone C",
+        "atSec": 118
+      },
+      {
+        "step": "All 4 workers evacuated",
+        "atSec": 118
+      }
+    ],
+    "zoneBreakdown": [
+      {
+        "zone": "Zone A",
+        "workers": 1,
+        "avgEvacuationSec": 100,
+        "maxEvacuationSec": 100
+      },
+      {
+        "zone": "Zone C",
+        "workers": 2,
+        "avgEvacuationSec": 105,
+        "maxEvacuationSec": 118
+      },
+      {
+        "zone": "Zone B",
+        "workers": 1,
+        "avgEvacuationSec": 94,
+        "maxEvacuationSec": 94
+      }
+    ],
+    "feedback": [
+      "Zone C took longer - may need route review.",
+      "Evacuation exceeded 90 seconds. Pre-stage rescue gear near high-risk entries."
+    ],
+    "logLine": "Evacuated 4 workers in 118 seconds",
+    "resultBadge": {
+      "status": "FAIL",
+      "passed": false,
+      "reason": "Evacuation 118s exceeded 90s target.",
+      "targetSec": 90,
+      "supervisorTargetSec": 45,
+      "evacuationSec": 118,
+      "supervisorResponseSec": null
+    }
+  }
+]
