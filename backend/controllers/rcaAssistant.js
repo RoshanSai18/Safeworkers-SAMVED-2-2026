@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { buildIncidentPostmortem } = require('./incidentPostmortem');
 
 function normalizeLang(lang = 'hi') {

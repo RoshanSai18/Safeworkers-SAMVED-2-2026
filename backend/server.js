@@ -19,6 +19,7 @@ const { buildCounterfactualSimulation }      = require('./controllers/counterfac
 const { getWardIntelligence }                = require('./controllers/wardIntelligence');
 const { getPlanCopilot }                     = require('./controllers/planCopilot');
 const { buildRcaAssistant }                  = require('./controllers/rcaAssistant');
+const { buildEvacuationDrill }               = require('./controllers/evacuationDrill');
 
 const PORT             = 3001;
 const FRONTEND_ORIGINS = ['http://localhost:5173', 'http://localhost:5174'];
@@ -136,6 +137,42 @@ function rememberIncident(context = {}) {
   if (incidentHistory.length > INCIDENT_HISTORY_LIMIT) {
     incidentHistory.splice(INCIDENT_HISTORY_LIMIT);
   }
+}
+
+const DRILL_HISTORY_LIMIT = 100;
+const evacuationDrillHistory = [];
+
+function rememberDrillRun(drill) {
+  const summary = {
+    id: drill.id,
+    startedAt: drill.startedAt,
+    completedAt: null,
+    simulatedZone: drill.simulatedZone,
+    targetWorkers: drill.targetWorkers,
+    targetCount: drill.targetWorkers.length,
+    totalEvacuationSec: drill.totalEvacuationSec,
+    targetSec: drill.targetSec,
+    supervisorResponseSec: null,
+    responseChain: drill.responseChain,
+    zoneBreakdown: drill.zoneBreakdown,
+    feedback: drill.feedback,
+    logLine: drill.logLine,
+  };
+  evacuationDrillHistory.unshift(summary);
+  if (evacuationDrillHistory.length > DRILL_HISTORY_LIMIT) {
+    evacuationDrillHistory.splice(DRILL_HISTORY_LIMIT);
+  }
+  return summary;
+}
+
+function appendDrillFeedback(drillLog, supervisorResponseSec) {
+  const feedback = [...(drillLog.feedback || [])];
+  if (Number.isFinite(supervisorResponseSec) && supervisorResponseSec > 45) {
+    feedback.unshift(`Supervisor response took ${supervisorResponseSec}s - rehearse escalation handoff.`);
+  } else if (Number.isFinite(supervisorResponseSec)) {
+    feedback.unshift(`Supervisor response was ${supervisorResponseSec}s - within expected range.`);
+  }
+  drillLog.feedback = feedback.slice(0, 4);
 }
 
 const httpServer = http.createServer(app);
@@ -409,6 +446,97 @@ app.post('/api/recommendations/simulate', async (req, res) => {
       error: err.message || 'Failed to simulate assignment',
     });
   }
+});
+
+// GET /api/drills/evacuation-history
+// Returns latest evacuation drill logs with response summary and zone feedback.
+app.get('/api/drills/evacuation-history', (_req, res) => {
+  res.json({ success: true, logs: evacuationDrillHistory });
+});
+
+// POST /api/drills/evacuation-run
+// Body: { workerCount?: number, zonePreference?: string, workersSnapshot?: Worker[], jobsSnapshot?: Job[] }
+// Runs a simulated evacuation drill and emits a DRILL_SOS alert.
+app.post('/api/drills/evacuation-run', (req, res) => {
+  try {
+    const {
+      workerCount,
+      zonePreference,
+      workersSnapshot,
+      jobsSnapshot,
+    } = req.body ?? {};
+
+    const drill = buildEvacuationDrill({
+      workerCount,
+      zonePreference,
+      workers: Array.isArray(workersSnapshot) && workersSnapshot.length > 0 ? workersSnapshot : workers,
+      jobs: Array.isArray(jobsSnapshot) && jobsSnapshot.length > 0 ? jobsSnapshot : jobs,
+    });
+
+    rememberDrillRun(drill);
+
+    io.emit('auto_alert', {
+      id: `drill-sos-${Date.now()}`,
+      type: 'DRILL_SOS',
+      severity: 'critical',
+      time: 'just now',
+      drillId: drill.id,
+      zone: drill.simulatedZone,
+      msg: `DRILL: Simulated SOS in ${drill.simulatedZone}. Test evacuation response chain now.`,
+      workerId: drill.targetWorkers[0]?.workerId ?? null,
+      workerName: drill.targetWorkers[0]?.workerName || 'Drill Team',
+    });
+
+    console.log(`[Drill] Started ${drill.id} | ${drill.logLine}`);
+    res.json({ success: true, drill });
+  } catch (err) {
+    console.error('[Drill] Run error:', err.message);
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Failed to run evacuation drill',
+    });
+  }
+});
+
+// POST /api/drills/evacuation-complete
+// Body: { drillId: string, supervisorResponseSec?: number }
+// Finalizes a drill log and emits DRILL_COMPLETE informational alert.
+app.post('/api/drills/evacuation-complete', (req, res) => {
+  const { drillId, supervisorResponseSec } = req.body ?? {};
+  if (!drillId) {
+    return res.status(400).json({ success: false, error: 'drillId is required' });
+  }
+
+  const drillLog = evacuationDrillHistory.find((d) => d.id === drillId);
+  if (!drillLog) {
+    return res.status(404).json({ success: false, error: 'Drill run not found' });
+  }
+
+  const parsedResponseSec = Number.parseInt(supervisorResponseSec, 10);
+  if (Number.isFinite(parsedResponseSec) && parsedResponseSec > 0) {
+    drillLog.supervisorResponseSec = parsedResponseSec;
+  }
+  drillLog.completedAt = new Date().toISOString();
+  appendDrillFeedback(drillLog, drillLog.supervisorResponseSec);
+
+  const responseSuffix = Number.isFinite(drillLog.supervisorResponseSec)
+    ? ` | Supervisor response ${drillLog.supervisorResponseSec}s`
+    : '';
+
+  io.emit('auto_alert', {
+    id: `drill-complete-${Date.now()}`,
+    type: 'DRILL_COMPLETE',
+    severity: 'info',
+    time: 'just now',
+    drillId: drillLog.id,
+    zone: drillLog.simulatedZone,
+    msg: `Drill complete: ${drillLog.logLine}${responseSuffix}`,
+    workerId: drillLog.targetWorkers[0]?.workerId ?? null,
+    workerName: drillLog.targetWorkers[0]?.workerName || 'Drill Team',
+  });
+
+  console.log(`[Drill] Completed ${drillLog.id} | response=${drillLog.supervisorResponseSec ?? 'n/a'}s`);
+  res.json({ success: true, drill: drillLog });
 });
 
 // POST /api/incident/rca-assistant

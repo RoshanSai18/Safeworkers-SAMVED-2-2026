@@ -237,6 +237,16 @@ export default function SupervisorDashboard() {
     const [rcaState, setRcaState]         = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
     const [rcaError, setRcaError]         = useState('');
 
+    const [drillModalOpen, setDrillModalOpen] = useState(false);
+    const [drillState, setDrillState]         = useState('idle'); // 'idle' | 'loading' | 'active' | 'completed' | 'error'
+    const [drillError, setDrillError]         = useState('');
+    const [drillResult, setDrillResult]       = useState(null);
+    const [drillLogs, setDrillLogs]           = useState([]);
+    const [drillStartedAtMs, setDrillStartedAtMs] = useState(0);
+    const [drillElapsedSec, setDrillElapsedSec]   = useState(0);
+    const [drillAckSec, setDrillAckSec]           = useState(null);
+    const [drillCompleting, setDrillCompleting]   = useState(false);
+
     const { socket } = useSocket();
 
     useEffect(() => {
@@ -266,6 +276,37 @@ export default function SupervisorDashboard() {
         }
     }, [workers, jobs, simWorkerId, simJobId]);
 
+    useEffect(() => {
+        let cancelled = false;
+
+        const fetchDrillHistory = async () => {
+            try {
+                const res = await fetch('http://localhost:3001/api/drills/evacuation-history', {
+                    signal: AbortSignal.timeout(15000),
+                });
+                const data = await res.json();
+                if (!cancelled && data.success) {
+                    setDrillLogs(Array.isArray(data.logs) ? data.logs : []);
+                }
+            } catch {
+                // Drill history is optional context; keep UI usable if unavailable.
+            }
+        };
+
+        fetchDrillHistory();
+        return () => { cancelled = true; };
+    }, []);
+
+    useEffect(() => {
+        if (!drillModalOpen || !drillStartedAtMs || drillState !== 'active') return undefined;
+
+        const timer = setInterval(() => {
+            setDrillElapsedSec(Math.max(0, Math.floor((Date.now() - drillStartedAtMs) / 1000)));
+        }, 250);
+
+        return () => clearInterval(timer);
+    }, [drillModalOpen, drillStartedAtMs, drillState]);
+
     // Real-time socket: live gas readings cache + auto-alerts from sensor engine
     useEffect(() => {
         if (!socket) return;
@@ -276,7 +317,7 @@ export default function SupervisorDashboard() {
 
         const handleAutoAlert = (alert) => {
             setAlerts(prev => [alert, ...prev]);
-            if (alert.severity === 'critical') {
+            if (alert.severity === 'critical' && alert.type !== 'DRILL_SOS') {
                 setWorkers(prev => {
                     const w = prev.find(wk => wk.id === alert.workerId);
                     if (w) setSosModal(w);
@@ -358,6 +399,7 @@ export default function SupervisorDashboard() {
     };
 
     const formatElapsed = (m) => m === 0 ? '—' : `${m}m`;
+    const formatSeconds = (s) => `${Math.max(0, Number(s) || 0)}s`;
     const shiftLabel    = () => {
         const h = Math.floor(shiftTime / 3600), m = Math.floor((shiftTime % 3600) / 60);
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
@@ -503,11 +545,103 @@ export default function SupervisorDashboard() {
         fetchRcaAssistant(rcaIncident, rcaAnswers, rcaLang);
     };
 
+    const runEvacuationDrill = async () => {
+        setDrillModalOpen(true);
+        setDrillState('loading');
+        setDrillError('');
+        setDrillResult(null);
+        setDrillAckSec(null);
+        setDrillElapsedSec(0);
+        setDrillCompleting(false);
+
+        try {
+            const res = await fetch('http://localhost:3001/api/drills/evacuation-run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    workerCount: 4,
+                    workersSnapshot: workers,
+                    jobsSnapshot: jobs,
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Failed to start drill');
+
+            const drill = data.drill;
+            setDrillResult(drill);
+            const startedMs = new Date(drill?.startedAt || Date.now()).getTime();
+            setDrillStartedAtMs(Number.isFinite(startedMs) ? startedMs : Date.now());
+            setDrillState('active');
+        } catch (err) {
+            setDrillState('error');
+            setDrillError(err.message || 'Failed to start evacuation drill');
+        }
+    };
+
+    const openDrillFromLog = (log) => {
+        setDrillResult(log);
+        setDrillAckSec(Number.isFinite(log?.supervisorResponseSec) ? log.supervisorResponseSec : null);
+        const startedMs = new Date(log?.startedAt || Date.now()).getTime();
+        setDrillStartedAtMs(Number.isFinite(startedMs) ? startedMs : Date.now());
+        setDrillElapsedSec(Number(log?.totalEvacuationSec || 0));
+        setDrillState(log?.completedAt ? 'completed' : 'active');
+        setDrillError('');
+        setDrillModalOpen(true);
+    };
+
+    const closeDrillModal = () => {
+        setDrillModalOpen(false);
+        setDrillError('');
+        if (drillState === 'error') setDrillState('idle');
+    };
+
+    const acknowledgeDrillSos = () => {
+        if (drillAckSec != null) return;
+        setDrillAckSec(Math.max(1, drillElapsedSec || 1));
+    };
+
+    const completeEvacuationDrill = async () => {
+        if (!drillResult?.id || drillCompleting) return;
+
+        setDrillCompleting(true);
+        setDrillError('');
+
+        const supervisorResponseSec = drillAckSec ?? Math.max(1, drillElapsedSec || 1);
+
+        try {
+            const res = await fetch('http://localhost:3001/api/drills/evacuation-complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    drillId: drillResult.id,
+                    supervisorResponseSec,
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Failed to complete drill');
+
+            const completed = data.drill || { ...drillResult, supervisorResponseSec };
+            setDrillResult(completed);
+            setDrillAckSec(Number.isFinite(completed.supervisorResponseSec) ? completed.supervisorResponseSec : supervisorResponseSec);
+            setDrillState('completed');
+            setDrillLogs(prev => [completed, ...prev.filter(item => item.id !== completed.id)].slice(0, 30));
+            setAlerts(prev => prev.filter(a => !(a.type === 'DRILL_SOS' && a.drillId === completed.id)));
+        } catch (err) {
+            setDrillState('error');
+            setDrillError(err.message || 'Failed to complete evacuation drill');
+        } finally {
+            setDrillCompleting(false);
+        }
+    };
+
     const inManholeCount = workers.filter(w => w.status === 'IN_MANHOLE').length;
     const sosCount       = workers.filter(w => w.status === 'SOS').length;
     const onlineCount    = workers.filter(w => w.status !== 'SIGNAL_LOST').length;
     const simulationWorkers = workers.filter(w => w.status !== 'SOS');
     const simulationJobs = jobs;
+    const activeDrillSos = alerts.find(a => a.type === 'DRILL_SOS') || null;
 
     return (
         <div className="sd-root">
@@ -553,6 +687,124 @@ export default function SupervisorDashboard() {
                             <button className="sd-fat-override" onClick={() => { doAssign(fatigueWarn.job, fatigueWarn.worker.id); setFatigueWarn(null); }}>
                                 Override & Assign
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* EVACUATION DRILL MODAL */}
+            {drillModalOpen && (
+                <div className="sd-drill-overlay" role="dialog" aria-modal="true">
+                    <div className="sd-drill-modal">
+                        <div className="sd-drill-header">
+                            <div>
+                                <div className="sd-drill-title">Emergency Evacuation Drill Mode</div>
+                                <div className="sd-drill-sub">Simulated SOS, response timing, and auto-feedback in a risk-free run.</div>
+                            </div>
+                            <button className="sd-drill-close" onClick={closeDrillModal}><X size={16} /></button>
+                        </div>
+
+                        <div className="sd-drill-content">
+                            {drillState === 'idle' && (
+                                <div className="sd-drill-empty">
+                                    <p>Start a new evacuation drill to test readiness across response chain and zone evacuation speed.</p>
+                                    <button className="sd-drill-btn-primary" onClick={runEvacuationDrill}>
+                                        <Activity size={14} /> Start One-Click Drill
+                                    </button>
+                                </div>
+                            )}
+
+                            {drillState === 'loading' && (
+                                <div className="sd-drill-loading">
+                                    <span className="sd-ai-spinner" />
+                                    <span>Generating simulated SOS and evacuation chain...</span>
+                                </div>
+                            )}
+
+                            {drillState === 'error' && (
+                                <div className="sd-drill-error">
+                                    <AlertTriangle size={16} />
+                                    <span>{drillError}</span>
+                                </div>
+                            )}
+
+                            {(drillState === 'active' || drillState === 'completed') && drillResult && (
+                                <>
+                                    <div className="sd-drill-metrics">
+                                        <span className="sd-drill-chip">Zone: {drillResult.simulatedZone}</span>
+                                        <span className="sd-drill-chip">Workers: {drillResult.targetCount || drillResult.targetWorkers?.length || 0}</span>
+                                        <span className="sd-drill-chip">Elapsed: {formatSeconds(drillState === 'completed' ? (drillResult.totalEvacuationSec || drillElapsedSec) : drillElapsedSec)}</span>
+                                        <span className="sd-drill-chip">Supervisor response: {drillAckSec != null ? formatSeconds(drillAckSec) : 'pending'}</span>
+                                        <span className="sd-drill-chip">Evacuation: {formatSeconds(drillResult.totalEvacuationSec)}</span>
+                                    </div>
+
+                                    <div className="sd-drill-grid">
+                                        <div className="sd-drill-card">
+                                            <div className="sd-drill-card-title">Response Chain</div>
+                                            <div className="sd-drill-chain-list">
+                                                {(drillResult.responseChain || []).map((item, idx) => (
+                                                    <div key={`${drillResult.id}-chain-${idx}`} className="sd-drill-chain-row">
+                                                        <span className="sd-drill-chain-step">{item.step}</span>
+                                                        <span className="sd-drill-chain-time">T+{item.atSec}s</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="sd-drill-card">
+                                            <div className="sd-drill-card-title">Auto Log and Feedback</div>
+                                            <div className="sd-drill-logline">{drillResult.logLine}</div>
+
+                                            <ul className="sd-drill-feedback-list">
+                                                {(drillResult.feedback || []).map((tip, idx) => (
+                                                    <li key={`${drillResult.id}-feedback-${idx}`}>{tip}</li>
+                                                ))}
+                                            </ul>
+
+                                            <div className="sd-drill-zone-grid">
+                                                {(drillResult.zoneBreakdown || []).map((zone) => (
+                                                    <div key={`${drillResult.id}-${zone.zone}`} className="sd-drill-zone-card">
+                                                        <div className="sd-drill-zone-title">{zone.zone}</div>
+                                                        <div className="sd-drill-zone-meta">{zone.workers} workers</div>
+                                                        <div className="sd-drill-zone-meta">Avg: {zone.avgEvacuationSec}s</div>
+                                                        <div className="sd-drill-zone-meta">Max: {zone.maxEvacuationSec}s</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="sd-drill-actions">
+                                        <button
+                                            className="sd-drill-btn-secondary"
+                                            onClick={acknowledgeDrillSos}
+                                            disabled={drillAckSec != null || drillState === 'completed'}
+                                        >
+                                            <Clock size={13} /> {drillAckSec != null ? `Acknowledged at ${formatSeconds(drillAckSec)}` : 'Acknowledge Drill SOS'}
+                                        </button>
+                                        <button
+                                            className="sd-drill-btn-primary"
+                                            onClick={completeEvacuationDrill}
+                                            disabled={drillState === 'completed' || drillCompleting}
+                                        >
+                                            <CheckCircle2 size={13} />
+                                            {drillState === 'completed'
+                                                ? 'Drill Logged'
+                                                : drillCompleting
+                                                    ? 'Logging drill...'
+                                                    : 'Complete and Auto-Log'}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+
+                            {drillState === 'error' && (
+                                <div className="sd-drill-actions">
+                                    <button className="sd-drill-btn-primary" onClick={runEvacuationDrill}>
+                                        <Activity size={13} /> Retry Drill Run
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -888,6 +1140,9 @@ export default function SupervisorDashboard() {
                     <div className="sd-stat sd-stat-clock"><Clock size={13} /><span>Shift {shiftLabel()}</span></div>
                 </div>
                 <div className="sd-header-right">
+                    <button className="sd-drill-launch-btn" onClick={runEvacuationDrill}>
+                        <Activity size={14} /> Run Drill
+                    </button>
                     <span className="sd-operator">{currentUser?.name}</span>
                     <button className="sd-logout-btn" onClick={handleLogout} title="Logout"><LogOut size={15} /></button>
                 </div>
@@ -1004,6 +1259,7 @@ export default function SupervisorDashboard() {
                     <div className="sd-tabs">
                         {[
                             { id: 'alerts', icon: <Bell size={13} />,       label: 'Alerts',    badge: alerts.length },
+                            { id: 'drills', icon: <Activity size={13} />,   label: 'Drills',    badge: drillLogs.length },
                             { id: 'ppe',    icon: <Camera size={13} />,     label: 'PPE',       badge: ppeQueue.length },
                             { id: 'roster', icon: <Users size={13} />,      label: 'Roster',    badge: null },
                             { id: 'jobs',   icon: <Briefcase size={13} />,  label: 'Jobs',      badge: jobs.length },
@@ -1025,11 +1281,14 @@ export default function SupervisorDashboard() {
                                     const isGas = a.type === 'AUTO_GAS';
                                     const isSos = a.type === 'SOS' || a.type === 'SOS_MANUAL';
                                     const isOfflineSync = a.type === 'OFFLINE_SYNC';
-                                    const canRunRca = !isOfflineSync;
+                                    const isDrillSos = a.type === 'DRILL_SOS';
+                                    const isDrillComplete = a.type === 'DRILL_COMPLETE';
+                                    const canRunRca = !isOfflineSync && !isDrillSos && !isDrillComplete;
                                     const gasExplain = isGas ? parseGasExplainability(a) : null;
-                                    const cardCss = isSos ? 'sos'
+                                    const cardCss = isSos || isDrillSos ? 'sos'
                                         : isGas && a.severity === 'critical' ? 'sos'
                                         : isGas ? 'delay'
+                                        : isDrillComplete ? 'info'
                                         : isOfflineSync ? 'info'
                                         : a.type.toLowerCase();
                                     return (
@@ -1038,9 +1297,11 @@ export default function SupervisorDashboard() {
                                         onMouseLeave={() => setHoveredAlertWorkerId(null)}
                                     >
                                         <div className="sd-alert-header">
-                                            <AlertTriangle size={14} style={{ color: (isSos || a.severity === 'critical') ? 'var(--sd-sos)' : isOfflineSync ? 'var(--sd-ok)' : 'var(--sd-delayed)', flexShrink: 0 }} />
+                                            <AlertTriangle size={14} style={{ color: (isSos || isDrillSos || a.severity === 'critical') ? 'var(--sd-sos)' : (isOfflineSync || isDrillComplete) ? 'var(--sd-ok)' : 'var(--sd-delayed)', flexShrink: 0 }} />
                                             <span className="sd-alert-type-label">
-                                                {isSos ? 'SOS Emergency'
+                                                {isDrillSos ? 'Drill SOS'
+                                                    : isDrillComplete ? 'Drill Complete'
+                                                    : isSos ? 'SOS Emergency'
                                                     : isGas ? `Gas Alert${a.gas ? ` · ${a.gas}` : ''}`
                                                     : isOfflineSync ? 'Offline Sync'
                                                     : 'Delayed Exit'}
@@ -1074,6 +1335,11 @@ export default function SupervisorDashboard() {
                                                     <AlertTriangle size={12} /> View SOS
                                                 </button>
                                             )}
+                                            {isDrillSos && (
+                                                <button className="sd-btn-rca" onClick={() => setDrillModalOpen(true)}>
+                                                    <Activity size={12} /> Open Drill
+                                                </button>
+                                            )}
                                             {canRunRca && (
                                                 <button className="sd-btn-rca" onClick={() => openRcaAssistant(a)}>
                                                     <Zap size={12} /> RCA Assistant
@@ -1086,6 +1352,47 @@ export default function SupervisorDashboard() {
                                     </div>
                                     );
                                 })}
+                            </div>
+                        )}
+
+                        {/* DRILLS */}
+                        {activeTab === 'drills' && (
+                            <div className="sd-tab-content">
+                                <button className="sd-drill-tab-run" onClick={runEvacuationDrill}>
+                                    <Activity size={13} /> One-Click Evacuation Drill
+                                </button>
+
+                                {activeDrillSos && (
+                                    <div className="sd-drill-active-banner" onClick={() => setDrillModalOpen(true)}>
+                                        <AlertTriangle size={14} />
+                                        <span>{activeDrillSos.msg}</span>
+                                    </div>
+                                )}
+
+                                {drillLogs.length === 0 ? (
+                                    <div className="sd-empty-state">
+                                        <Clock size={28} />
+                                        <p>No drill runs yet. Start one to test evacuation readiness.</p>
+                                    </div>
+                                ) : drillLogs.map((log) => (
+                                    <button key={log.id} className="sd-drill-log-card" onClick={() => openDrillFromLog(log)}>
+                                        <div className="sd-drill-log-top">
+                                            <strong>{log.logLine || 'Evacuation drill completed'}</strong>
+                                            <span>{log.simulatedZone || 'Zone N/A'}</span>
+                                        </div>
+                                        <div className="sd-drill-log-meta">
+                                            <span>Evacuation: {formatSeconds(log.totalEvacuationSec)}</span>
+                                            <span>
+                                                Response: {Number.isFinite(log.supervisorResponseSec)
+                                                    ? formatSeconds(log.supervisorResponseSec)
+                                                    : 'pending'}
+                                            </span>
+                                        </div>
+                                        {Array.isArray(log.feedback) && log.feedback.length > 0 && (
+                                            <p className="sd-drill-log-feedback">{log.feedback[0]}</p>
+                                        )}
+                                    </button>
+                                ))}
                             </div>
                         )}
 
