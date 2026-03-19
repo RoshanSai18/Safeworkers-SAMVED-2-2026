@@ -343,12 +343,14 @@
 }
 .sd-alert-sos   { border-color: rgba(255,59,48,.35);  background: rgba(255,59,48,.06);  }
 .sd-alert-delay { border-color: rgba(255,159,10,.3);  background: rgba(255,159,10,.05); }
+.sd-alert-info  { border-color: rgba(52,199,89,.32);  background: rgba(52,199,89,.07); }
 .sd-alert-header {
     display: flex; align-items: center; gap: 7px;
     margin-bottom: 6px;
 }
 .sd-alert-sos .sd-alert-header svg { color: var(--sd-sos); }
 .sd-alert-delay .sd-alert-header svg { color: var(--sd-delayed); }
+.sd-alert-info .sd-alert-header svg { color: var(--sd-ok); }
 .sd-alert-type-label { font-weight: 700; font-size: 12px; }
 .sd-alert-time { margin-left: auto; font-size: 11px; color: var(--sd-txt3); }
 .sd-alert-msg  { font-size: 12px; color: #c8c8c8; line-height: 1.5; margin-bottom: 10px; }

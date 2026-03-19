@@ -170,6 +170,38 @@ io.on('connection', (socket) => {
     console.log(`[Diary] Safety profile emitted for worker ${data.workerId} (score=${profile.displayScore})`);
   });
 
+  // Worker → Server → Supervisor: offline incident/hazard reports synced after reconnection.
+  // Payload: { workerId, workerName, syncedCount, summary?: { sos, hazard }, syncedAt }
+  socket.on('worker_offline_reports_synced', (data) => {
+    const syncedCount = Number(data?.syncedCount || 0);
+    if (!syncedCount) return;
+
+    const sosCount = Number(data?.summary?.sos || 0);
+    const hazardCount = Number(data?.summary?.hazard || 0);
+    const workerName = data?.workerName || `Worker ${data?.workerId ?? 'N/A'}`;
+    const breakdown = [
+      sosCount > 0 ? `${sosCount} SOS` : null,
+      hazardCount > 0 ? `${hazardCount} hazard` : null,
+    ].filter(Boolean).join(', ');
+
+    io.emit('auto_alert', {
+      id: `offline-sync-${Date.now()}`,
+      type: 'OFFLINE_SYNC',
+      workerId: data?.workerId ?? null,
+      workerName,
+      msg: breakdown
+        ? `${workerName} synced ${syncedCount} offline report(s): ${breakdown}`
+        : `${workerName} synced ${syncedCount} offline report(s) after reconnecting`,
+      severity: 'info',
+      time: 'just now',
+      syncedCount,
+      summary: { sos: sosCount, hazard: hazardCount },
+      syncedAt: data?.syncedAt || new Date().toISOString(),
+    });
+
+    console.log(`[Offline Sync] ${workerName} synced ${syncedCount} report(s)`);
+  });
+
   socket.on('disconnect', () => {
     console.log(`[Socket] Client disconnected: ${socket.id}`);
   });

@@ -31,6 +31,7 @@
 body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
 
 .wd-root {
+    height: 100dvh;
     min-height: 100dvh;
     background: var(--wd-bg);
     background-image: radial-gradient(ellipse at 30% 20%, rgba(255,255,255,.025) 0%, transparent 60%),
@@ -40,20 +41,23 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
     flex-direction: column;
     align-items: center;
     font-family: var(--wd-font);
-    padding: 48px 20px;
+    padding: 20px;
+    overflow: hidden;
 }
 
 /* Centered card — light */
 .wd-card {
     width: 640px;
     max-width: 100%;
+    height: 100%;
+    max-height: 100%;
     background: var(--wd-panel);
     border: 1px solid rgba(0,0,0,.08);
     border-radius: 28px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    margin: auto 0;
+    margin: 0;
     box-shadow:
         0 2px 8px rgba(0,0,0,.12),
         0 16px 48px rgba(0,0,0,.35),
@@ -118,8 +122,52 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
 /*  MAIN  */
 .wd-main {
     flex: 1; display: flex; flex-direction: column;
+    min-height: 0;
     padding: 32px 32px 40px;
     gap: 20px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Connectivity / offline sync banner */
+.wd-network-banner {
+    border-radius: 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--wd-sep);
+    background: var(--wd-panel2);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.wd-network-banner.offline {
+    border-color: rgba(255, 159, 10, 0.35);
+    background: rgba(255, 159, 10, 0.08);
+}
+
+.wd-network-banner.online {
+    border-color: rgba(48, 209, 88, 0.35);
+    background: rgba(48, 209, 88, 0.08);
+}
+
+.wd-network-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.wd-network-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--wd-txt);
+}
+
+.wd-network-text {
+    margin: 0;
+    font-size: 0.74rem;
+    line-height: 1.4;
+    color: var(--wd-txt2);
 }
 
 /*  PRIMARY BUTTON — trust blue  */
@@ -709,6 +757,60 @@ body { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
     font-weight: 600;
     color: var(--wd-red);
     line-height: 1.4;
+}
+
+.wd-gasref-card {
+    border: 1px solid rgba(255, 159, 10, 0.3);
+    background: rgba(255, 159, 10, 0.08);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.wd-gasref-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #8a4b00;
+}
+
+.wd-gasref-copy {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.4;
+    color: #7c4a03;
+}
+
+.wd-gasref-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.wd-gasref-pill {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid rgba(138, 75, 0, 0.15);
+    font-size: 0.7rem;
+    color: #7c4a03;
+}
+
+.wd-gasref-pill strong {
+    font-size: 0.72rem;
+    color: #5f3702;
+}
+
+.wd-gasref-btn {
+    width: 100%;
 }
 
 /* ════════════════════════════════════════════════════════

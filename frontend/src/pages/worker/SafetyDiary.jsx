@@ -67,6 +67,65 @@ function scoreCaption(s) {
     return s >= 80 ? 'उत्कृष्ट – शीर्ष स्तर' : s >= 50 ? 'अच्छा – बढ़ता रहें' : 'शुरुआत – जारी रखें';
 }
 
+function buildFallbackWeeklyCoach(profile) {
+    const score = Number(profile?.displayScore || 0);
+    const projectedScoreDelta = score >= 80 ? 6 : score >= 50 ? 8 : 10;
+    const roleLabelHi = score >= 80 ? 'सुरक्षा एंकर' : score >= 50 ? 'स्थिर ऑपरेटर' : 'सुरक्षा स्टार्ट';
+    const habits = score >= 80
+        ? [
+            {
+                id: 'fallback_peer_review',
+                titleHi: 'सप्ताह में 1 peer safety review करें',
+                actionHi: 'एक साथी के pre-entry checks को cross-check करें।',
+                projectedGain: 3,
+            },
+            {
+                id: 'fallback_pattern_log',
+                titleHi: '2 near-miss patterns डायरी में लिखें',
+                actionHi: 'दोहराने वाले जोखिम कारण नोट करके supervisor से शेयर करें।',
+                projectedGain: 3,
+            },
+        ]
+        : score >= 50
+            ? [
+                {
+                    id: 'fallback_prebrief',
+                    titleHi: 'हर एंट्री से पहले 2-मिनट बडी ब्रीफिंग',
+                    actionHi: 'gas limits, exit route और SOS roles पहले तय करें।',
+                    projectedGain: 4,
+                },
+                {
+                    id: 'fallback_daily_report',
+                    titleHi: 'हर शिफ्ट में 1 सुरक्षा अवलोकन रिपोर्ट करें',
+                    actionHi: 'छोटे बदलाव भी तुरंत report करके escalation रोकें।',
+                    projectedGain: 4,
+                },
+            ]
+            : [
+                {
+                    id: 'fallback_checklist',
+                    titleHi: 'हर काम से पहले 45-सेकंड डबल-चेक',
+                    actionHi: 'PPE + gas meter checklist को पढ़कर confirm करें।',
+                    projectedGain: 5,
+                },
+                {
+                    id: 'fallback_report',
+                    titleHi: 'हर शिफ्ट में 1 खतरा रिपोर्ट करें',
+                    actionHi: 'gas/water/structure anomaly दिखते ही app में log करें।',
+                    projectedGain: 5,
+                },
+            ];
+
+    return {
+        roleLabelHi,
+        projectedScoreDelta,
+        projectedTargetScore: Math.min(100, score + projectedScoreDelta),
+        headlineHi: `इस हफ्ते ये 2 आदतें अपनाएं, सुरक्षा स्कोर लगभग +${projectedScoreDelta} बढ़ सकता है।`,
+        headlineEn: `Do these 2 habits to increase your safety score by +${projectedScoreDelta}.`,
+        habits,
+    };
+}
+
 /* ── Score arc ───────────────────────────────────────────────────────────── */
 function ScoreArc({ score }) {
     const R    = 52;
@@ -114,6 +173,7 @@ export default function SafetyDiary({ workerId, workerName, badge, socket }) {
     const lockedBadges = profile.badges.filter(b => !b.earned);
     const level        = scoreLevel(profile.displayScore);
     const color        = scoreColor(profile.displayScore);
+    const weeklyCoach  = profile.weeklyCoach || buildFallbackWeeklyCoach(profile);
 
     return (
         <div className="sd-root">
@@ -156,6 +216,36 @@ export default function SafetyDiary({ workerId, workerName, badge, socket }) {
                     </div>
                 </div>
             </div>
+
+            {/* ── Weekly personal safety coach ── */}
+            {weeklyCoach && (
+                <div className="sd-coach-card" role="note" aria-live="polite">
+                    <div className="sd-coach-top">
+                        <div className="sd-coach-kicker">🧭 Personal Safety Coach</div>
+                        <div className="sd-coach-role">{weeklyCoach.roleLabelHi}</div>
+                    </div>
+                    <p className="sd-coach-headline">{weeklyCoach.headlineHi}</p>
+                    <p className="sd-coach-subline">{weeklyCoach.headlineEn}</p>
+                    <div className="sd-coach-target">
+                        इस हफ्ते लक्ष्य: {profile.displayScore} → {weeklyCoach.projectedTargetScore}
+                    </div>
+                    <div className="sd-coach-habits">
+                        {(weeklyCoach.habits || []).slice(0, 2).map((habit, index) => (
+                            <div key={habit.id || index} className="sd-coach-habit">
+                                <div className="sd-coach-num">{index + 1}</div>
+                                <div className="sd-coach-copy">
+                                    <div className="sd-coach-habit-title">{habit.titleHi}</div>
+                                    <div className="sd-coach-habit-action">{habit.actionHi}</div>
+                                </div>
+                                <div className="sd-coach-gain">+{habit.projectedGain || 0}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="sd-coach-footnote">
+                        अनुमानित कुल सुधार: +{weeklyCoach.projectedScoreDelta}
+                    </div>
+                </div>
+            )}
 
             {/* ── Stats 2×2 grid ── */}
             <div className="sd-stats-grid">

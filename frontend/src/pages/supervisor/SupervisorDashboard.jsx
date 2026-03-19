@@ -838,10 +838,12 @@ export default function SupervisorDashboard() {
                                 ) : alerts.map(a => {
                                     const isGas = a.type === 'AUTO_GAS';
                                     const isSos = a.type === 'SOS' || a.type === 'SOS_MANUAL';
+                                    const isOfflineSync = a.type === 'OFFLINE_SYNC';
                                     const gasExplain = isGas ? parseGasExplainability(a) : null;
                                     const cardCss = isSos ? 'sos'
                                         : isGas && a.severity === 'critical' ? 'sos'
                                         : isGas ? 'delay'
+                                        : isOfflineSync ? 'info'
                                         : a.type.toLowerCase();
                                     return (
                                     <div key={a.id} className={`sd-alert-card sd-alert-${cardCss}`}
@@ -849,10 +851,11 @@ export default function SupervisorDashboard() {
                                         onMouseLeave={() => setHoveredAlertWorkerId(null)}
                                     >
                                         <div className="sd-alert-header">
-                                            <AlertTriangle size={14} style={{ color: (isSos || a.severity === 'critical') ? 'var(--sd-sos)' : 'var(--sd-delayed)', flexShrink: 0 }} />
+                                            <AlertTriangle size={14} style={{ color: (isSos || a.severity === 'critical') ? 'var(--sd-sos)' : isOfflineSync ? 'var(--sd-ok)' : 'var(--sd-delayed)', flexShrink: 0 }} />
                                             <span className="sd-alert-type-label">
                                                 {isSos ? 'SOS Emergency'
                                                     : isGas ? `Gas Alert${a.gas ? ` · ${a.gas}` : ''}`
+                                                    : isOfflineSync ? 'Offline Sync'
                                                     : 'Delayed Exit'}
                                             </span>
                                             <span className="sd-alert-time">{a.time}</span>

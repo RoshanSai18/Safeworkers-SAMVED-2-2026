@@ -3,7 +3,7 @@ import {
     LogOut, Camera, Wind, CheckCircle2, AlertTriangle,
     ChevronRight, X, Lock, Shield, Clock, Flame,
     Droplets, ZapOff, TriangleAlert, CircleAlert,
-    Ruler, User, Calendar, Volume2,
+    Ruler, User, Calendar, Volume2, Wifi, WifiOff,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +15,15 @@ import SafetyDiary from './SafetyDiary';
 /*  Constants  */
 const ENTRY_DURATION = 30 * 60;   // 30 min in seconds
 const SOS_HOLD_MS    = 1500;      // 1.5 s long-press for SOS
+const OFFLINE_REPORT_QUEUE_KEY = 'samved_offline_reports_v1';
+
+const OFFLINE_GAS_REFERENCE = [
+    { gas: 'H₂S', safe: '< 10 ppm' },
+    { gas: 'CO', safe: '< 35 ppm' },
+    { gas: 'O₂', safe: '19.5% - 23.5%' },
+    { gas: 'CH₄', safe: '< 10% LEL' },
+    { gas: 'Water', safe: '< 20 cm' },
+];
 
 const PHASE = {
     DASHBOARD:  'DASHBOARD',
@@ -39,6 +48,33 @@ const JOB = {
 
 const fmt       = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 const fmtShift  = (s) => `${String(Math.floor(s/3600)).padStart(2,'0')}h ${String(Math.floor((s%3600)/60)).padStart(2,'0')}m`;
+
+function loadOfflineQueue() {
+    try {
+        const raw = localStorage.getItem(OFFLINE_REPORT_QUEUE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveOfflineQueue(queue) {
+    try {
+        localStorage.setItem(OFFLINE_REPORT_QUEUE_KEY, JSON.stringify(queue));
+    } catch {
+        // Ignore storage errors in private mode / restricted environments.
+    }
+}
+
+function makeOfflineQueueItem(eventType, payload) {
+    return {
+        id: `oq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        eventType,
+        payload,
+        createdAt: new Date().toISOString(),
+    };
+}
 
 /*  Audio chime  */
 function playChime(type = 'ok') {
@@ -133,6 +169,13 @@ function buildLocalImmediateSteps(priority, signalKeys) {
     return [...new Set(steps)].slice(0, 3);
 }
 
+function buildHindiSignalNarrative(topSignals = [], actionClause = '') {
+    if (!topSignals.length) return `सभी संकेत सुरक्षित हैं। ${actionClause}`;
+    if (topSignals.length === 1) return `${topSignals[0]} के कारण ${actionClause}`;
+    if (topSignals.length === 2) return `${topSignals[0]} और ${topSignals[1]} के कारण ${actionClause}`;
+    return `${topSignals[0]}, ${topSignals[1]} और ${topSignals[2]} के कारण ${actionClause}`;
+}
+
 function buildLocalExplainability(priority, signals) {
     const triggerSignals = signals.map(s => s.label);
     const topSignals = triggerSignals.slice(0, 3);
@@ -141,9 +184,7 @@ function buildLocalExplainability(priority, signals) {
         : priority === 'medium'
             ? 'कार्य रोककर सुरक्षा जांच दोबारा करें'
             : 'सामान्य सावधानी के साथ कार्य जारी रखें';
-    const summaryHi = topSignals.length > 0
-        ? `${topSignals.join(' + ')} = ${actionClause}`
-        : `सभी संकेत सुरक्षित हैं = ${actionClause}`;
+    const summaryHi = buildHindiSignalNarrative(topSignals, actionClause);
     const confidence = buildLocalConfidence(priority, signals);
     return {
         summaryHi,
@@ -293,7 +334,13 @@ function buildAdvisorySpeechText(currentAdvisory) {
     const explanation = currentAdvisory.explainability?.summaryHi;
     const firstStep = currentAdvisory.explainability?.immediateSteps?.[0];
     if (explanation) {
-        return `${explanation}.${firstStep ? ` ${firstStep}` : ''}`;
+        // Backward compatible cleanup for any older summaries that still contain symbolic separators.
+        const cleanedExplanation = String(explanation)
+            .replace(/\s+\+\s+/g, ' और ')
+            .replace(/\s*=\s*/g, ' इसलिए ')
+            .trim();
+        const sentence = /[।.]$/.test(cleanedExplanation) ? cleanedExplanation : `${cleanedExplanation}.`;
+        return `${sentence}${firstStep ? ` ${firstStep}` : ''}`;
     }
     return currentAdvisory.speak || 'सुरक्षा निर्देश उपलब्ध नहीं हैं';
 }
@@ -469,9 +516,53 @@ export default function WorkerDashboard() {
     // Dashboard tab navigation
     const [activeTab,   setActiveTab]   = useState('job'); // 'job' | 'diary'
 
-    const { socket } = useSocket();
+    const [networkOnline, setNetworkOnline] = useState(() => navigator.onLine);
+    const [offlineReports, setOfflineReports] = useState(() => loadOfflineQueue());
+    const [syncMessage, setSyncMessage] = useState('');
+
+    const { socket, connected } = useSocket();
 
     const timerRef = useRef(null);
+
+    const realtimeAvailable = Boolean(socket && connected && networkOnline);
+    const pendingOfflineCount = offlineReports.length;
+
+    const queueOfflineReport = useCallback((eventType, payload) => {
+        setOfflineReports((prev) => [...prev, makeOfflineQueueItem(eventType, payload)]);
+    }, []);
+
+    const emitOrQueueReport = useCallback((eventType, payload) => {
+        if (realtimeAvailable) {
+            socket?.emit(eventType, payload);
+            return false;
+        }
+        queueOfflineReport(eventType, payload);
+        return true;
+    }, [realtimeAvailable, socket, queueOfflineReport]);
+
+    const syncOfflineReportsNow = useCallback((reportsToSync) => {
+        if (!socket || reportsToSync.length === 0) return;
+
+        const summary = reportsToSync.reduce((acc, report) => {
+            if (report.eventType === 'sos_manual') acc.sos += 1;
+            if (report.eventType === 'hazard_report') acc.hazard += 1;
+            return acc;
+        }, { sos: 0, hazard: 0 });
+
+        reportsToSync.forEach((report) => {
+            socket.emit(report.eventType, report.payload);
+        });
+
+        socket.emit('worker_offline_reports_synced', {
+            workerId: currentUser?.id ?? null,
+            workerName: currentUser?.name ?? null,
+            syncedCount: reportsToSync.length,
+            summary,
+            syncedAt: new Date().toISOString(),
+        });
+
+        setSyncMessage(`ऑफलाइन के ${reportsToSync.length} रिपोर्ट सिंक हो गए`);
+    }, [socket, currentUser?.id, currentUser?.name]);
 
 
     // Shift timer — always runs
@@ -479,6 +570,34 @@ export default function WorkerDashboard() {
         const t = setInterval(() => setShiftSecs(s => s + 1), 1000);
         return () => clearInterval(t);
     }, []);
+
+    useEffect(() => {
+        const handleOnline = () => setNetworkOnline(true);
+        const handleOffline = () => setNetworkOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    useEffect(() => {
+        saveOfflineQueue(offlineReports);
+    }, [offlineReports]);
+
+    useEffect(() => {
+        if (!realtimeAvailable || pendingOfflineCount === 0) return;
+        const snapshot = [...offlineReports];
+        syncOfflineReportsNow(snapshot);
+        setOfflineReports([]);
+    }, [realtimeAvailable, pendingOfflineCount, offlineReports, syncOfflineReportsNow]);
+
+    useEffect(() => {
+        if (!syncMessage) return;
+        const timer = setTimeout(() => setSyncMessage(''), 4500);
+        return () => clearTimeout(timer);
+    }, [syncMessage]);
 
     // Manhole countdown
     useEffect(() => {
@@ -494,18 +613,24 @@ export default function WorkerDashboard() {
     useEffect(() => {
         if (phase === PHASE.IN_MANHOLE && countdown === 0) {
             clearInterval(timerRef.current);
-            socket?.emit('sos_manual', {
+            const sosPayload = {
                 workerId:   currentUser?.id,
                 workerName: currentUser?.name,
                 reason:     'duration_exceeded',
-            });
+            };
+            const queued = emitOrQueueReport('sos_manual', sosPayload);
+            if (queued) {
+                setSyncMessage('ऑफलाइन मोड: SOS सेव हुआ, कनेक्शन आते ही सिंक होगा');
+            }
             playChime('sos');
             vibrate([200, 100, 200, 100, 400]);
             setSosActive(true);
             setPhase(PHASE.EXITED);
             setGasReadings(null);
             prevGasStatusRef.current = {};
-            socket?.emit('worker_exit_manhole', { workerId: currentUser?.id });
+            if (realtimeAvailable) {
+                socket?.emit('worker_exit_manhole', { workerId: currentUser?.id });
+            }
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [countdown, phase]);
@@ -633,6 +758,14 @@ export default function WorkerDashboard() {
 
     // Called when swipe completes — hit backend to validate gas levels
     const handleRunGasCheck = async () => {
+        if (!realtimeAvailable) {
+            setPreCheck({ state: 'offline_reference', readings: null, statuses: null });
+            setGasConfirmed(false);
+            playChime('warn');
+            vibrate([50, 30, 50]);
+            return;
+        }
+
         setPreCheck({ state: 'checking', readings: null, statuses: null });
         try {
             const res  = await fetch('http://localhost:3001/api/workers/gas-check');
@@ -649,8 +782,15 @@ export default function WorkerDashboard() {
                 vibrate([200, 100, 200]);
             }
         } catch {
-            setPreCheck({ state: 'idle', readings: null, statuses: null });
+            setPreCheck({ state: 'offline_reference', readings: null, statuses: null });
+            setGasConfirmed(false);
         }
+    };
+
+    const handleOfflineGasConfirm = () => {
+        setGasConfirmed(true);
+        playChime('ok');
+        vibrate([60, 30, 80]);
     };
 
     const handleStartChecklist = () => {
@@ -663,7 +803,9 @@ export default function WorkerDashboard() {
         setPhase(PHASE.IN_MANHOLE);
         setCountdown(ENTRY_DURATION);
         setEntryTime(new Date());
-        socket?.emit('worker_enter_manhole', { workerId: currentUser?.id });
+        if (realtimeAvailable) {
+            socket?.emit('worker_enter_manhole', { workerId: currentUser?.id });
+        }
     };
 
     const handleExit = () => {
@@ -673,19 +815,34 @@ export default function WorkerDashboard() {
         setPhase(PHASE.EXITED);
         setGasReadings(null);
         prevGasStatusRef.current = {};
-        socket?.emit('worker_exit_manhole', { workerId: currentUser?.id });
+        if (realtimeAvailable) {
+            socket?.emit('worker_exit_manhole', { workerId: currentUser?.id });
+        }
     };
 
     const handleSosTriggered = () => {
         setSosActive(true);
-        socket?.emit('sos_manual', { workerId: currentUser?.id, workerName: currentUser?.name });
+        const queued = emitOrQueueReport('sos_manual', {
+            workerId: currentUser?.id,
+            workerName: currentUser?.name,
+        });
+        if (queued) {
+            setSyncMessage('ऑफलाइन मोड: SOS सेव हुआ, कनेक्शन आते ही सिंक होगा');
+        }
     };
 
     const handleHazardReport = (hazard) => {
         setReportedHazard(hazard);
         vibrate([60, 30, 60]);
         playChime('ok');
-        socket?.emit('hazard_report', { workerId: currentUser?.id, workerName: currentUser?.name, hazard: hazard.label });
+        const queued = emitOrQueueReport('hazard_report', {
+            workerId: currentUser?.id,
+            workerName: currentUser?.name,
+            hazard: hazard.label,
+        });
+        if (queued) {
+            setSyncMessage('ऑफलाइन मोड: Hazard report सेव हुआ, कनेक्शन आते ही सिंक होगा');
+        }
         setTimeout(() => { setHazardModal(false); setReportedHazard(null); }, 2000);
     };
 
@@ -835,6 +992,24 @@ export default function WorkerDashboard() {
 
             {/*  MAIN  */}
             <main className="wd-main">
+
+                {(!realtimeAvailable || pendingOfflineCount > 0 || syncMessage) && (
+                    <div className={`wd-network-banner ${realtimeAvailable ? 'online' : 'offline'}`}>
+                        <div className="wd-network-row">
+                            {realtimeAvailable ? <Wifi size={14} /> : <WifiOff size={14} />}
+                            <span className="wd-network-title">
+                                {realtimeAvailable ? 'Online sync active' : 'Offline mode active'}
+                            </span>
+                        </div>
+                        <p className="wd-network-text">
+                            {!realtimeAvailable
+                                ? `Core checklist, gas reference, SOS और hazard reports काम करते रहेंगे. Pending sync: ${pendingOfflineCount}`
+                                : pendingOfflineCount > 0
+                                    ? `${pendingOfflineCount} queued report(s) syncing...`
+                                    : syncMessage}
+                        </p>
+                    </div>
+                )}
 
                 {/*  DASHBOARD  */}
                 {phase === PHASE.DASHBOARD && (
@@ -988,6 +1163,7 @@ export default function WorkerDashboard() {
                                     <div className="wd-check-desc">
                                         {gasConfirmed             ? 'All sensors confirmed safe' :
                                          preCheck.state === 'checking' ? 'Scanning sensors…' :
+                                         preCheck.state === 'offline_reference' ? 'Offline mode — handheld meter reference required' :
                                          preCheck.state === 'blocked'  ? 'Entry blocked — unsafe gas detected' :
                                          'Swipe to run live sensor check'}
                                     </div>
@@ -999,7 +1175,7 @@ export default function WorkerDashboard() {
                         </div>
 
                         {/* Swipe slider — active until cleared or blocked */}
-                        {!gasConfirmed && preCheck.state !== 'checking' && (
+                        {!gasConfirmed && preCheck.state !== 'checking' && preCheck.state !== 'offline_reference' && (
                             <SwipeConfirm
                                 key={preCheck.state}
                                 label={preCheck.state === 'blocked' ? 'Swipe to retry scan ↺' : 'Swipe to scan gas levels →'}
@@ -1007,6 +1183,30 @@ export default function WorkerDashboard() {
                                 confirmed={false}
                                 blocked={preCheck.state === 'blocked'}
                             />
+                        )}
+
+                        {preCheck.state === 'offline_reference' && (
+                            <div className="wd-gasref-card">
+                                <div className="wd-gasref-head">
+                                    <WifiOff size={14} /> Offline Gas Reference
+                                </div>
+                                <p className="wd-gasref-copy">
+                                    नेटवर्क उपलब्ध नहीं है. हैंडहेल्ड गैस मीटर की रीडिंग लेकर नीचे दिए सुरक्षित मानकों से मिलान करें.
+                                </p>
+                                <div className="wd-gasref-grid">
+                                    {OFFLINE_GAS_REFERENCE.map((ref) => (
+                                        <div key={ref.gas} className="wd-gasref-pill">
+                                            <span>{ref.gas}</span>
+                                            <strong>{ref.safe}</strong>
+                                        </div>
+                                    ))}
+                                </div>
+                                {!gasConfirmed && (
+                                    <button className="wd-check-btn wd-gasref-btn" onClick={handleOfflineGasConfirm}>
+                                        <CheckCircle2 size={16} /> मैंने मीटर से जांच लिया
+                                    </button>
+                                )}
+                            </div>
                         )}
 
                         {/* Scanning pulse */}

@@ -74,6 +74,19 @@ function buildImmediateSteps(priority, signalKeys) {
   return [...new Set(steps)].slice(0, 3);
 }
 
+function buildHindiSignalNarrative(topSignals = [], actionClause = '') {
+  if (topSignals.length === 0) {
+    return `सभी संकेत सुरक्षित हैं। ${actionClause}`;
+  }
+  if (topSignals.length === 1) {
+    return `${topSignals[0]} के कारण ${actionClause}`;
+  }
+  if (topSignals.length === 2) {
+    return `${topSignals[0]} और ${topSignals[1]} के कारण ${actionClause}`;
+  }
+  return `${topSignals[0]}, ${topSignals[1]} और ${topSignals[2]} के कारण ${actionClause}`;
+}
+
 function buildExplainability(priority, signals) {
   const signalLabels = signals.map((s) => s.label);
   const topSignals = signalLabels.slice(0, 3);
@@ -84,9 +97,7 @@ function buildExplainability(priority, signals) {
       ? 'कार्य रोककर सुरक्षा जांच दोबारा करें'
       : 'सामान्य सावधानी के साथ कार्य जारी रखें';
 
-  const summaryHi = topSignals.length > 0
-    ? `${topSignals.join(' + ')} = ${actionClause}`
-    : `सभी संकेत सुरक्षित हैं = ${actionClause}`;
+  const summaryHi = buildHindiSignalNarrative(topSignals, actionClause);
 
   const confidence = buildConfidence(priority, signals);
   const immediateSteps = buildImmediateSteps(priority, signals.map((s) => s.key));
