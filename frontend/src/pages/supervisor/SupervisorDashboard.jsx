@@ -165,6 +165,29 @@ function parseGasExplainability(alert) {
     };
 }
 
+function buildIncidentContextFromAlert(alert, workers, jobs) {
+    const worker = workers.find((w) => w.id === alert.workerId);
+    const activeJob = worker?.job && worker.job !== '—'
+        ? jobs.find((j) => j.id === worker.job)
+        : null;
+    const eventType = String(alert.type || 'INCIDENT').toUpperCase();
+    const severity = alert.severity || (eventType.includes('SOS') ? 'critical' : eventType === 'HAZARD' ? 'medium' : 'info');
+
+    return {
+        incidentId: alert.id || `inc-${Date.now()}`,
+        eventType,
+        severity,
+        workerId: alert.workerId ?? null,
+        workerName: alert.workerName || worker?.name || `Worker ${alert.workerId ?? 'N/A'}`,
+        badge: worker?.badge || 'N/A',
+        zone: activeJob?.zone || alert.zone || 'Zone N/A',
+        location: alert.location || worker?.address || activeJob?.address || 'Field location',
+        eventTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+        hazard: alert.hazard || (eventType === 'AUTO_GAS' ? (alert.gas ? `${alert.gas} threshold breach` : 'gas anomaly') : ''),
+        alertMessage: alert.msg || '',
+    };
+}
+
 export default function SupervisorDashboard() {
     const { currentUser, logout } = useAuth();
     const navigate = useNavigate();
@@ -203,6 +226,16 @@ export default function SupervisorDashboard() {
     const [simState, setSimState]       = useState('idle'); // 'idle' | 'loading' | 'done' | 'error'
     const [simResult, setSimResult]     = useState(null);
     const [simError, setSimError]       = useState('');
+
+    const [rcaModalOpen, setRcaModalOpen] = useState(false);
+    const [rcaIncident, setRcaIncident]   = useState(null);
+    const [rcaGuide, setRcaGuide]         = useState([]);
+    const [rcaAnswers, setRcaAnswers]     = useState({});
+    const [rcaSimilar, setRcaSimilar]     = useState([]);
+    const [rcaResult, setRcaResult]       = useState(null);
+    const [rcaLang, setRcaLang]           = useState('hi');
+    const [rcaState, setRcaState]         = useState('idle'); // 'idle' | 'loading' | 'ready' | 'error'
+    const [rcaError, setRcaError]         = useState('');
 
     const { socket } = useSocket();
 
@@ -412,6 +445,64 @@ export default function SupervisorDashboard() {
         if (aiRecTypingRef.current) clearTimeout(aiRecTypingRef.current);
     };
 
+    const fetchRcaAssistant = async (incidentContext, answers = {}, language = rcaLang) => {
+        if (!incidentContext) return;
+        setRcaState('loading');
+        setRcaError('');
+
+        try {
+            const res = await fetch('http://localhost:3001/api/incident/rca-assistant', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    incident: incidentContext,
+                    interviewAnswers: answers,
+                    lang: language,
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+
+            const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Failed to generate RCA report');
+
+            const assistant = data.assistant || {};
+            setRcaGuide(Array.isArray(assistant.interviewGuide) ? assistant.interviewGuide : []);
+            setRcaSimilar(Array.isArray(assistant.similarIncidents) ? assistant.similarIncidents : []);
+            setRcaResult(assistant.report || null);
+            setRcaState('ready');
+        } catch (err) {
+            setRcaState('error');
+            setRcaError(err.message || 'Failed to run RCA assistant');
+        }
+    };
+
+    const openRcaAssistant = (alertItem) => {
+        const incidentContext = buildIncidentContextFromAlert(alertItem, workers, jobs);
+        setRcaIncident(incidentContext);
+        setRcaAnswers({});
+        setRcaGuide([]);
+        setRcaSimilar([]);
+        setRcaResult(null);
+        setRcaError('');
+        setRcaModalOpen(true);
+        fetchRcaAssistant(incidentContext, {}, rcaLang);
+    };
+
+    const closeRcaAssistant = () => {
+        setRcaModalOpen(false);
+        setRcaState('idle');
+        setRcaError('');
+    };
+
+    const updateRcaAnswer = (questionId, value) => {
+        setRcaAnswers((prev) => ({ ...prev, [questionId]: value }));
+    };
+
+    const generateRcaReport = () => {
+        if (!rcaIncident) return;
+        fetchRcaAssistant(rcaIncident, rcaAnswers, rcaLang);
+    };
+
     const inManholeCount = workers.filter(w => w.status === 'IN_MANHOLE').length;
     const sosCount       = workers.filter(w => w.status === 'SOS').length;
     const onlineCount    = workers.filter(w => w.status !== 'SIGNAL_LOST').length;
@@ -462,6 +553,101 @@ export default function SupervisorDashboard() {
                             <button className="sd-fat-override" onClick={() => { doAssign(fatigueWarn.job, fatigueWarn.worker.id); setFatigueWarn(null); }}>
                                 Override & Assign
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* RCA ASSISTANT MODAL */}
+            {rcaModalOpen && (
+                <div className="sd-rca-overlay" role="dialog" aria-modal="true">
+                    <div className="sd-rca-modal">
+                        <div className="sd-rca-header">
+                            <div>
+                                <div className="sd-rca-title">Post-Incident Root Cause AI Assistant</div>
+                                <div className="sd-rca-sub">Structured interview + bilingual RCA report</div>
+                            </div>
+                            <button className="sd-rca-close" onClick={closeRcaAssistant}><X size={16} /></button>
+                        </div>
+
+                        {rcaIncident && (
+                            <div className="sd-rca-incident-meta">
+                                <span>{rcaIncident.eventType}</span>
+                                <span>{rcaIncident.workerName}</span>
+                                <span>{rcaIncident.zone}</span>
+                                <span>{rcaIncident.location}</span>
+                            </div>
+                        )}
+
+                        <div className="sd-rca-lang-toggle">
+                            <button className={`sd-rca-lang-btn${rcaLang === 'hi' ? ' active' : ''}`} onClick={() => setRcaLang('hi')}>HI</button>
+                            <button className={`sd-rca-lang-btn${rcaLang === 'en' ? ' active' : ''}`} onClick={() => setRcaLang('en')}>EN</button>
+                        </div>
+
+                        <div className="sd-rca-grid">
+                            <div className="sd-rca-col">
+                                <div className="sd-rca-section-title">Structured Interview</div>
+                                <div className="sd-rca-interview-list">
+                                    {rcaGuide.map((q) => (
+                                        <div key={q.id} className="sd-rca-question-card">
+                                            <div className="sd-rca-question">{rcaLang === 'en' ? q.questionEn : q.questionHi}</div>
+                                            <div className="sd-rca-hint">{rcaLang === 'en' ? q.hintEn : q.hintHi}</div>
+                                            <textarea
+                                                className="sd-rca-answer"
+                                                value={rcaAnswers[q.id] || ''}
+                                                onChange={(e) => updateRcaAnswer(q.id, e.target.value)}
+                                                placeholder={rcaLang === 'en' ? 'Supervisor notes...' : 'सुपरवाइजर नोट्स...'}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                                <button className="sd-rca-generate" onClick={generateRcaReport} disabled={rcaState === 'loading'}>
+                                    <Zap size={13} /> {rcaState === 'loading' ? 'Generating RCA...' : 'Generate RCA Report'}
+                                </button>
+                            </div>
+
+                            <div className="sd-rca-col">
+                                <div className="sd-rca-section-title">RCA Report</div>
+
+                                {rcaState === 'loading' && (
+                                    <div className="sd-rca-loading">
+                                        <span className="sd-ai-spinner" />
+                                        <span>Analyzing interview and similar incidents...</span>
+                                    </div>
+                                )}
+
+                                {rcaState === 'error' && (
+                                    <div className="sd-rca-error">
+                                        <AlertTriangle size={16} />
+                                        <span>{rcaError}</span>
+                                    </div>
+                                )}
+
+                                {rcaState === 'ready' && rcaResult && (
+                                    <>
+                                        <div className="sd-rca-similar">
+                                            <div className="sd-rca-similar-title">Similar incidents considered</div>
+                                            {rcaSimilar.length === 0 ? (
+                                                <div className="sd-rca-empty">No similar incidents found. Using baseline preventive controls.</div>
+                                            ) : (
+                                                <div className="sd-rca-similar-list">
+                                                    {rcaSimilar.map((item) => (
+                                                        <div key={item.incidentId} className="sd-rca-similar-item">
+                                                            <strong>{item.eventType}</strong>
+                                                            <span>{item.zone}</span>
+                                                            <span>{item.hazard || 'N/A'}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="sd-rca-markdown">
+                                            {renderMarkdown(rcaLang === 'en' ? rcaResult.markdownEn : rcaResult.markdownHi)}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -839,6 +1025,7 @@ export default function SupervisorDashboard() {
                                     const isGas = a.type === 'AUTO_GAS';
                                     const isSos = a.type === 'SOS' || a.type === 'SOS_MANUAL';
                                     const isOfflineSync = a.type === 'OFFLINE_SYNC';
+                                    const canRunRca = !isOfflineSync;
                                     const gasExplain = isGas ? parseGasExplainability(a) : null;
                                     const cardCss = isSos ? 'sos'
                                         : isGas && a.severity === 'critical' ? 'sos'
@@ -885,6 +1072,11 @@ export default function SupervisorDashboard() {
                                             {(isSos || (isGas && a.severity === 'critical')) && (
                                                 <button className="sd-btn-danger" onClick={() => setSosModal(workers.find(w => w.id === a.workerId))}>
                                                     <AlertTriangle size={12} /> View SOS
+                                                </button>
+                                            )}
+                                            {canRunRca && (
+                                                <button className="sd-btn-rca" onClick={() => openRcaAssistant(a)}>
+                                                    <Zap size={12} /> RCA Assistant
                                                 </button>
                                             )}
                                             <button className="sd-btn-ack" onClick={() => acknowledgeAlert(a.id)}>

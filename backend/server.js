@@ -18,6 +18,7 @@ const { getRecommendations }                 = require('./controllers/recommend'
 const { buildCounterfactualSimulation }      = require('./controllers/counterfactual');
 const { getWardIntelligence }                = require('./controllers/wardIntelligence');
 const { getPlanCopilot }                     = require('./controllers/planCopilot');
+const { buildRcaAssistant }                  = require('./controllers/rcaAssistant');
 
 const PORT             = 3001;
 const FRONTEND_ORIGINS = ['http://localhost:5173', 'http://localhost:5174'];
@@ -29,6 +30,113 @@ app.use(express.json());
 app.use('/api/workers', workersRouter);
 app.use('/api/jobs',    jobsRouter);
 app.use('/api/alerts',  alertsRouter);
+
+const INCIDENT_HISTORY_LIMIT = 250;
+const incidentHistory = [
+  {
+    incidentId: 'seed-rca-1',
+    eventType: 'HAZARD',
+    severity: 'medium',
+    workerId: 2,
+    workerName: 'Suresh Babu',
+    badge: 'SW-018',
+    zone: 'Zone C',
+    location: 'Gandhi Road, Block C',
+    eventTime: '08:42',
+    hazard: 'Gas Cloud',
+    alertMessage: 'Gas Cloud reported near MH-1874',
+    recordedAt: new Date(Date.now() - (3 * 86_400_000)).toISOString(),
+  },
+  {
+    incidentId: 'seed-rca-2',
+    eventType: 'SOS_MANUAL',
+    severity: 'critical',
+    workerId: 1,
+    workerName: 'Ravi Kumar',
+    badge: 'SW-041',
+    zone: 'Zone B',
+    location: 'Rajiv Nagar, Lane 4',
+    eventTime: '09:10',
+    hazard: '',
+    alertMessage: 'Manual SOS triggered by Ravi Kumar',
+    recordedAt: new Date(Date.now() - (2 * 86_400_000)).toISOString(),
+  },
+  {
+    incidentId: 'seed-rca-3',
+    eventType: 'HAZARD',
+    severity: 'medium',
+    workerId: 3,
+    workerName: 'Meena Devi',
+    badge: 'SW-029',
+    zone: 'Zone A',
+    location: 'Nehru St, Sector 2',
+    eventTime: '11:25',
+    hazard: 'Water Flood',
+    alertMessage: 'Water Flood reported near MH-0933',
+    recordedAt: new Date(Date.now() - (1 * 86_400_000)).toISOString(),
+  },
+];
+
+function normalizeIncidentSnapshot(context = {}) {
+  return {
+    incidentId: context.incidentId || `inc-${Date.now()}`,
+    eventType: String(context.eventType || context.type || 'INCIDENT').toUpperCase(),
+    severity: String(context.severity || 'medium').toLowerCase(),
+    workerId: context.workerId ?? null,
+    workerName: context.workerName || 'Worker',
+    badge: context.badge || 'N/A',
+    zone: context.zone || 'Zone N/A',
+    location: context.location || context.address || 'Field location',
+    eventTime: context.eventTime || new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    hazard: context.hazard || '',
+    alertMessage: context.alertMessage || context.msg || '',
+    recordedAt: context.recordedAt || new Date().toISOString(),
+  };
+}
+
+function words(text = '') {
+  return String(text)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+function incidentSimilarityScore(target, candidate) {
+  let score = 0;
+  if (target.eventType && target.eventType === candidate.eventType) score += 4;
+  if (target.zone && target.zone === candidate.zone) score += 2;
+  if (target.severity && target.severity === candidate.severity) score += 1;
+
+  const targetHazard = new Set(words(target.hazard));
+  const candidateHazard = new Set(words(candidate.hazard));
+  const hazardOverlap = [...targetHazard].some((w) => candidateHazard.has(w));
+  if (hazardOverlap) score += 3;
+
+  const targetAlert = new Set(words(target.alertMessage));
+  const candidateAlert = new Set(words(candidate.alertMessage));
+  const alertOverlap = [...targetAlert].some((w) => candidateAlert.has(w));
+  if (alertOverlap) score += 1;
+
+  return score;
+}
+
+function findSimilarIncidents(targetIncident, limit = 5) {
+  return incidentHistory
+    .filter((item) => item.incidentId !== targetIncident.incidentId)
+    .map((item) => ({ ...item, _score: incidentSimilarityScore(targetIncident, item) }))
+    .filter((item) => item._score > 0)
+    .sort((a, b) => b._score - a._score)
+    .slice(0, limit)
+    .map(({ _score, ...item }) => item);
+}
+
+function rememberIncident(context = {}) {
+  const snapshot = normalizeIncidentSnapshot(context);
+  incidentHistory.unshift(snapshot);
+  if (incidentHistory.length > INCIDENT_HISTORY_LIMIT) {
+    incidentHistory.splice(INCIDENT_HISTORY_LIMIT);
+  }
+}
 
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
@@ -75,7 +183,7 @@ io.on('connection', (socket) => {
       time:       'just now',
     });
 
-    emitIncidentPostmortem({
+    const incidentContext = {
       incidentId: alertId,
       eventType: 'SOS_MANUAL',
       severity: 'critical',
@@ -87,7 +195,10 @@ io.on('connection', (socket) => {
       eventTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       hazard: '',
       alertMessage: `Manual SOS triggered by ${data.workerName || worker?.name || `Worker ${data.workerId}`}`,
-    });
+    };
+
+    rememberIncident(incidentContext);
+    emitIncidentPostmortem(incidentContext);
   });
 
   // Supervisor → Server → Worker: supervisor hits "Evacuate" in popup
@@ -134,7 +245,7 @@ io.on('connection', (socket) => {
       time:       'just now',
     });
 
-    emitIncidentPostmortem({
+    const incidentContext = {
       incidentId: alertId,
       eventType: 'HAZARD',
       severity: 'medium',
@@ -146,7 +257,10 @@ io.on('connection', (socket) => {
       eventTime: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
       hazard: data.hazard || '',
       alertMessage: `${data.hazard} reported by ${data.workerName || worker?.name || `Worker ${data.workerId}`}`,
-    });
+    };
+
+    rememberIncident(incidentContext);
+    emitIncidentPostmortem(incidentContext);
   });
 
   // Worker → Server → Worker: request a Safety Co-Pilot advisory for the current job.
@@ -293,6 +407,35 @@ app.post('/api/recommendations/simulate', async (req, res) => {
     res.status(400).json({
       success: false,
       error: err.message || 'Failed to simulate assignment',
+    });
+  }
+});
+
+// POST /api/incident/rca-assistant
+// Body: { incident: {...}, interviewAnswers?: Record<string,string>, lang?: 'hi'|'en' }
+// Runs structured RCA assistant using incident context + similar historical incidents.
+app.post('/api/incident/rca-assistant', async (req, res) => {
+  const { incident, interviewAnswers, lang } = req.body ?? {};
+  if (!incident || typeof incident !== 'object') {
+    return res.status(400).json({ success: false, error: 'incident object is required' });
+  }
+
+  try {
+    const normalizedIncident = normalizeIncidentSnapshot(incident);
+    const similarIncidents = findSimilarIncidents(normalizedIncident, 5);
+    const assistant = await buildRcaAssistant({
+      incident: normalizedIncident,
+      interviewAnswers: interviewAnswers || {},
+      similarIncidents,
+      lang: lang || 'hi',
+    });
+
+    res.json({ success: true, assistant });
+  } catch (err) {
+    console.error('[RCA Assistant] Error:', err.message);
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Failed to generate RCA assistant report',
     });
   }
 });
