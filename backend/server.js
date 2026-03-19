@@ -3,6 +3,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const workersRouter = require('./routes/workers');
 const jobsRouter    = require('./routes/jobs');
@@ -140,28 +142,121 @@ function rememberIncident(context = {}) {
 }
 
 const DRILL_HISTORY_LIMIT = 100;
+const DRILL_PASS_RESPONSE_SEC = 45;
+const DRILL_HISTORY_FILE = path.join(__dirname, 'data', 'evacuationDrillHistory.json');
 const evacuationDrillHistory = [];
 
-function rememberDrillRun(drill) {
-  const summary = {
-    id: drill.id,
-    startedAt: drill.startedAt,
-    completedAt: null,
-    simulatedZone: drill.simulatedZone,
-    targetWorkers: drill.targetWorkers,
-    targetCount: drill.targetWorkers.length,
-    totalEvacuationSec: drill.totalEvacuationSec,
-    targetSec: drill.targetSec,
-    supervisorResponseSec: null,
-    responseChain: drill.responseChain,
-    zoneBreakdown: drill.zoneBreakdown,
-    feedback: drill.feedback,
-    logLine: drill.logLine,
+function isPositiveNumber(value) {
+  return Number.isFinite(value) && value > 0;
+}
+
+function asPositiveInt(value, fallback = null) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function deriveDrillBadge(drillLog = {}) {
+  const targetSec = asPositiveInt(drillLog.targetSec, 90);
+  const evacuationSec = asPositiveInt(drillLog.totalEvacuationSec, null);
+  const supervisorResponseSec = asPositiveInt(drillLog.supervisorResponseSec, null);
+
+  const meetsEvacuationTarget = !isPositiveNumber(evacuationSec) || evacuationSec <= targetSec;
+  const meetsSupervisorTarget = !isPositiveNumber(supervisorResponseSec) || supervisorResponseSec <= DRILL_PASS_RESPONSE_SEC;
+  const passed = meetsEvacuationTarget && meetsSupervisorTarget;
+
+  let reason = 'Evacuation and supervisor response met the target windows.';
+  if (!meetsEvacuationTarget) {
+    reason = `Evacuation ${evacuationSec}s exceeded ${targetSec}s target.`;
+  } else if (!meetsSupervisorTarget) {
+    reason = `Supervisor response ${supervisorResponseSec}s exceeded ${DRILL_PASS_RESPONSE_SEC}s target.`;
+  } else if (!isPositiveNumber(supervisorResponseSec)) {
+    reason = `Evacuation met ${targetSec}s target. Supervisor response timing pending.`;
+  }
+
+  return {
+    status: passed ? 'PASS' : 'FAIL',
+    passed,
+    reason,
+    targetSec,
+    supervisorTargetSec: DRILL_PASS_RESPONSE_SEC,
+    evacuationSec: isPositiveNumber(evacuationSec) ? evacuationSec : null,
+    supervisorResponseSec: isPositiveNumber(supervisorResponseSec) ? supervisorResponseSec : null,
   };
+}
+
+function normalizeDrillLogEntry(drill = {}) {
+  const targetWorkers = Array.isArray(drill.targetWorkers) ? drill.targetWorkers : [];
+  const totalEvacuationSec = asPositiveInt(drill.totalEvacuationSec, 0);
+
+  const normalized = {
+    id: drill.id || `drill-${Date.now()}`,
+    drillType: drill.drillType || 'EMERGENCY_EVACUATION',
+    startedAt: typeof drill.startedAt === 'string' ? drill.startedAt : new Date().toISOString(),
+    completedAt: typeof drill.completedAt === 'string' ? drill.completedAt : null,
+    simulatedZone: drill.simulatedZone || 'Zone N/A',
+    targetWorkers,
+    targetCount: asPositiveInt(drill.targetCount, targetWorkers.length),
+    totalEvacuationSec,
+    targetSec: asPositiveInt(drill.targetSec, 90),
+    supervisorResponseSec: asPositiveInt(drill.supervisorResponseSec, null),
+    responseChain: Array.isArray(drill.responseChain) ? drill.responseChain : [],
+    zoneBreakdown: Array.isArray(drill.zoneBreakdown) ? drill.zoneBreakdown : [],
+    feedback: Array.isArray(drill.feedback) ? drill.feedback.map((item) => String(item)).slice(0, 4) : [],
+    logLine: drill.logLine || `Evacuated ${targetWorkers.length} workers in ${totalEvacuationSec} seconds`,
+  };
+
+  normalized.resultBadge = deriveDrillBadge(normalized);
+  return normalized;
+}
+
+function persistDrillHistoryToDisk() {
+  try {
+    fs.mkdirSync(path.dirname(DRILL_HISTORY_FILE), { recursive: true });
+    fs.writeFileSync(
+      DRILL_HISTORY_FILE,
+      JSON.stringify(evacuationDrillHistory.slice(0, DRILL_HISTORY_LIMIT), null, 2),
+      'utf8'
+    );
+  } catch (err) {
+    console.error('[Drill] Failed to persist drill history:', err.message);
+  }
+}
+
+function loadDrillHistoryFromDisk() {
+  try {
+    if (!fs.existsSync(DRILL_HISTORY_FILE)) return;
+
+    const raw = fs.readFileSync(DRILL_HISTORY_FILE, 'utf8');
+    if (!raw.trim()) return;
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+
+    const normalizedLogs = parsed
+      .map((item) => normalizeDrillLogEntry(item))
+      .slice(0, DRILL_HISTORY_LIMIT);
+
+    evacuationDrillHistory.splice(0, evacuationDrillHistory.length, ...normalizedLogs);
+    console.log(`[Drill] Loaded ${normalizedLogs.length} persisted drill logs`);
+  } catch (err) {
+    console.error('[Drill] Failed to load persisted drill history:', err.message);
+  }
+}
+
+function rememberDrillRun(drill) {
+  const summary = normalizeDrillLogEntry({
+    ...drill,
+    completedAt: null,
+    supervisorResponseSec: null,
+    targetCount: Array.isArray(drill.targetWorkers) ? drill.targetWorkers.length : 0,
+  });
+
   evacuationDrillHistory.unshift(summary);
   if (evacuationDrillHistory.length > DRILL_HISTORY_LIMIT) {
     evacuationDrillHistory.splice(DRILL_HISTORY_LIMIT);
   }
+
+  persistDrillHistoryToDisk();
   return summary;
 }
 
@@ -173,7 +268,105 @@ function appendDrillFeedback(drillLog, supervisorResponseSec) {
     feedback.unshift(`Supervisor response was ${supervisorResponseSec}s - within expected range.`);
   }
   drillLog.feedback = feedback.slice(0, 4);
+  drillLog.resultBadge = deriveDrillBadge(drillLog);
 }
+
+function averageRounded(values = []) {
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function buildDrillTrends(logs = evacuationDrillHistory) {
+  const orderedLogs = Array.isArray(logs) ? logs.filter(Boolean) : [];
+  const completedLogs = orderedLogs.filter((log) => Boolean(log.completedAt));
+  const passBasis = completedLogs.length > 0 ? completedLogs : orderedLogs;
+
+  const evacuationValues = orderedLogs
+    .map((log) => asPositiveInt(log.totalEvacuationSec, null))
+    .filter(isPositiveNumber);
+
+  const responseValues = completedLogs
+    .map((log) => asPositiveInt(log.supervisorResponseSec, null))
+    .filter(isPositiveNumber);
+
+  const passCount = passBasis.filter((log) => deriveDrillBadge(log).passed).length;
+  const recentWindow = orderedLogs
+    .slice(0, 5)
+    .map((log) => asPositiveInt(log.totalEvacuationSec, null))
+    .filter(isPositiveNumber);
+  const previousWindow = orderedLogs
+    .slice(5, 10)
+    .map((log) => asPositiveInt(log.totalEvacuationSec, null))
+    .filter(isPositiveNumber);
+
+  const recentAvgEvacuationSec = averageRounded(recentWindow);
+  const previousAvgEvacuationSec = averageRounded(previousWindow);
+
+  let trendDirection = 'steady';
+  let trendDeltaSec = null;
+  if (isPositiveNumber(recentAvgEvacuationSec) && isPositiveNumber(previousAvgEvacuationSec)) {
+    trendDeltaSec = recentAvgEvacuationSec - previousAvgEvacuationSec;
+    if (trendDeltaSec <= -3) trendDirection = 'improving';
+    if (trendDeltaSec >= 3) trendDirection = 'slowing';
+  }
+
+  const zoneAccumulator = new Map();
+  orderedLogs.forEach((log) => {
+    const zone = log.simulatedZone || 'Zone N/A';
+    const evacSec = asPositiveInt(log.totalEvacuationSec, null);
+    const badge = deriveDrillBadge(log);
+
+    if (!zoneAccumulator.has(zone)) {
+      zoneAccumulator.set(zone, {
+        zone,
+        runs: 0,
+        passCount: 0,
+        evacuationTotalSec: 0,
+        evacuationCount: 0,
+        latestEvacuationSec: null,
+      });
+    }
+
+    const entry = zoneAccumulator.get(zone);
+    entry.runs += 1;
+    if (badge.passed) entry.passCount += 1;
+    if (isPositiveNumber(evacSec)) {
+      entry.evacuationTotalSec += evacSec;
+      entry.evacuationCount += 1;
+      entry.latestEvacuationSec = evacSec;
+    }
+  });
+
+  const zoneTrends = [...zoneAccumulator.values()]
+    .map((entry) => ({
+      zone: entry.zone,
+      runs: entry.runs,
+      passRatePct: entry.runs > 0 ? Math.round((entry.passCount / entry.runs) * 100) : 0,
+      avgEvacuationSec: entry.evacuationCount > 0
+        ? Math.round(entry.evacuationTotalSec / entry.evacuationCount)
+        : null,
+      latestEvacuationSec: entry.latestEvacuationSec,
+    }))
+    .sort((a, b) => (b.avgEvacuationSec || 0) - (a.avgEvacuationSec || 0))
+    .slice(0, 4);
+
+  return {
+    totalRuns: orderedLogs.length,
+    completedRuns: completedLogs.length,
+    passRatePct: passBasis.length > 0 ? Math.round((passCount / passBasis.length) * 100) : 0,
+    avgEvacuationSec: averageRounded(evacuationValues),
+    avgSupervisorResponseSec: averageRounded(responseValues),
+    bestEvacuationSec: evacuationValues.length > 0 ? Math.min(...evacuationValues) : null,
+    worstEvacuationSec: evacuationValues.length > 0 ? Math.max(...evacuationValues) : null,
+    trendDirection,
+    trendDeltaSec,
+    recentAvgEvacuationSec,
+    previousAvgEvacuationSec,
+    zoneTrends,
+  };
+}
+
+loadDrillHistoryFromDisk();
 
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
@@ -451,7 +644,13 @@ app.post('/api/recommendations/simulate', async (req, res) => {
 // GET /api/drills/evacuation-history
 // Returns latest evacuation drill logs with response summary and zone feedback.
 app.get('/api/drills/evacuation-history', (_req, res) => {
-  res.json({ success: true, logs: evacuationDrillHistory });
+  res.json({ success: true, logs: evacuationDrillHistory, trends: buildDrillTrends() });
+});
+
+// GET /api/drills/evacuation-trends
+// Returns aggregated drill performance trends for pass rate and response speed.
+app.get('/api/drills/evacuation-trends', (_req, res) => {
+  res.json({ success: true, trends: buildDrillTrends() });
 });
 
 // POST /api/drills/evacuation-run
@@ -473,22 +672,22 @@ app.post('/api/drills/evacuation-run', (req, res) => {
       jobs: Array.isArray(jobsSnapshot) && jobsSnapshot.length > 0 ? jobsSnapshot : jobs,
     });
 
-    rememberDrillRun(drill);
+    const storedDrill = rememberDrillRun(drill);
 
     io.emit('auto_alert', {
       id: `drill-sos-${Date.now()}`,
       type: 'DRILL_SOS',
       severity: 'critical',
       time: 'just now',
-      drillId: drill.id,
-      zone: drill.simulatedZone,
-      msg: `DRILL: Simulated SOS in ${drill.simulatedZone}. Test evacuation response chain now.`,
-      workerId: drill.targetWorkers[0]?.workerId ?? null,
-      workerName: drill.targetWorkers[0]?.workerName || 'Drill Team',
+      drillId: storedDrill.id,
+      zone: storedDrill.simulatedZone,
+      msg: `DRILL: Simulated SOS in ${storedDrill.simulatedZone}. Test evacuation response chain now.`,
+      workerId: storedDrill.targetWorkers[0]?.workerId ?? null,
+      workerName: storedDrill.targetWorkers[0]?.workerName || 'Drill Team',
     });
 
-    console.log(`[Drill] Started ${drill.id} | ${drill.logLine}`);
-    res.json({ success: true, drill });
+    console.log(`[Drill] Started ${storedDrill.id} | ${storedDrill.logLine}`);
+    res.json({ success: true, drill: storedDrill, trends: buildDrillTrends() });
   } catch (err) {
     console.error('[Drill] Run error:', err.message);
     res.status(400).json({
@@ -518,6 +717,7 @@ app.post('/api/drills/evacuation-complete', (req, res) => {
   }
   drillLog.completedAt = new Date().toISOString();
   appendDrillFeedback(drillLog, drillLog.supervisorResponseSec);
+  persistDrillHistoryToDisk();
 
   const responseSuffix = Number.isFinite(drillLog.supervisorResponseSec)
     ? ` | Supervisor response ${drillLog.supervisorResponseSec}s`
@@ -536,7 +736,7 @@ app.post('/api/drills/evacuation-complete', (req, res) => {
   });
 
   console.log(`[Drill] Completed ${drillLog.id} | response=${drillLog.supervisorResponseSec ?? 'n/a'}s`);
-  res.json({ success: true, drill: drillLog });
+  res.json({ success: true, drill: drillLog, trends: buildDrillTrends() });
 });
 
 // POST /api/incident/rca-assistant

@@ -188,6 +188,148 @@ function buildIncidentContextFromAlert(alert, workers, jobs) {
     };
 }
 
+function asPositiveInt(value, fallback = null) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function deriveLocalDrillBadge(log = {}) {
+    if (log?.resultBadge && (log.resultBadge.status === 'PASS' || log.resultBadge.status === 'FAIL')) {
+        return {
+            ...log.resultBadge,
+            status: log.resultBadge.status,
+            passed: typeof log.resultBadge.passed === 'boolean'
+                ? log.resultBadge.passed
+                : log.resultBadge.status === 'PASS',
+        };
+    }
+
+    const targetSec = asPositiveInt(log.targetSec, 90);
+    const evacuationSec = asPositiveInt(log.totalEvacuationSec, null);
+    const supervisorResponseSec = asPositiveInt(log.supervisorResponseSec, null);
+    const supervisorTargetSec = 45;
+
+    const hasEvacuation = Number.isFinite(evacuationSec);
+    const hasResponse = Number.isFinite(supervisorResponseSec);
+    const meetsEvacuationTarget = !hasEvacuation || evacuationSec <= targetSec;
+    const meetsResponseTarget = !hasResponse || supervisorResponseSec <= supervisorTargetSec;
+    const passed = meetsEvacuationTarget && meetsResponseTarget;
+
+    let reason = 'Evacuation and supervisor response met the target windows.';
+    if (!meetsEvacuationTarget) {
+        reason = `Evacuation ${evacuationSec}s exceeded ${targetSec}s target.`;
+    } else if (!meetsResponseTarget) {
+        reason = `Supervisor response ${supervisorResponseSec}s exceeded ${supervisorTargetSec}s target.`;
+    } else if (!hasResponse) {
+        reason = `Evacuation met ${targetSec}s target. Supervisor response timing pending.`;
+    }
+
+    return {
+        status: passed ? 'PASS' : 'FAIL',
+        passed,
+        reason,
+        targetSec,
+        supervisorTargetSec,
+        evacuationSec,
+        supervisorResponseSec,
+    };
+}
+
+function averageRounded(values = []) {
+    if (values.length === 0) return null;
+    return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function deriveLocalDrillTrends(logs = []) {
+    const orderedLogs = Array.isArray(logs) ? logs.filter(Boolean) : [];
+    const completedLogs = orderedLogs.filter((log) => Boolean(log.completedAt));
+    const passBasis = completedLogs.length > 0 ? completedLogs : orderedLogs;
+
+    const evacuationValues = orderedLogs
+        .map((log) => asPositiveInt(log.totalEvacuationSec, null))
+        .filter(Number.isFinite);
+    const responseValues = completedLogs
+        .map((log) => asPositiveInt(log.supervisorResponseSec, null))
+        .filter(Number.isFinite);
+
+    const passCount = passBasis.filter((log) => deriveLocalDrillBadge(log).passed).length;
+
+    const recentWindow = orderedLogs
+        .slice(0, 5)
+        .map((log) => asPositiveInt(log.totalEvacuationSec, null))
+        .filter(Number.isFinite);
+    const previousWindow = orderedLogs
+        .slice(5, 10)
+        .map((log) => asPositiveInt(log.totalEvacuationSec, null))
+        .filter(Number.isFinite);
+
+    const recentAvgEvacuationSec = averageRounded(recentWindow);
+    const previousAvgEvacuationSec = averageRounded(previousWindow);
+
+    let trendDirection = 'steady';
+    let trendDeltaSec = null;
+    if (Number.isFinite(recentAvgEvacuationSec) && Number.isFinite(previousAvgEvacuationSec)) {
+        trendDeltaSec = recentAvgEvacuationSec - previousAvgEvacuationSec;
+        if (trendDeltaSec <= -3) trendDirection = 'improving';
+        if (trendDeltaSec >= 3) trendDirection = 'slowing';
+    }
+
+    const zoneAccumulator = new Map();
+    orderedLogs.forEach((log) => {
+        const zone = log.simulatedZone || 'Zone N/A';
+        const evacSec = asPositiveInt(log.totalEvacuationSec, null);
+        const badge = deriveLocalDrillBadge(log);
+
+        if (!zoneAccumulator.has(zone)) {
+            zoneAccumulator.set(zone, {
+                zone,
+                runs: 0,
+                passCount: 0,
+                evacuationTotalSec: 0,
+                evacuationCount: 0,
+                latestEvacuationSec: null,
+            });
+        }
+
+        const entry = zoneAccumulator.get(zone);
+        entry.runs += 1;
+        if (badge.passed) entry.passCount += 1;
+        if (Number.isFinite(evacSec)) {
+            entry.evacuationTotalSec += evacSec;
+            entry.evacuationCount += 1;
+            entry.latestEvacuationSec = evacSec;
+        }
+    });
+
+    const zoneTrends = [...zoneAccumulator.values()]
+        .map((entry) => ({
+            zone: entry.zone,
+            runs: entry.runs,
+            passRatePct: entry.runs > 0 ? Math.round((entry.passCount / entry.runs) * 100) : 0,
+            avgEvacuationSec: entry.evacuationCount > 0
+                ? Math.round(entry.evacuationTotalSec / entry.evacuationCount)
+                : null,
+            latestEvacuationSec: entry.latestEvacuationSec,
+        }))
+        .sort((a, b) => (b.avgEvacuationSec || 0) - (a.avgEvacuationSec || 0))
+        .slice(0, 4);
+
+    return {
+        totalRuns: orderedLogs.length,
+        completedRuns: completedLogs.length,
+        passRatePct: passBasis.length > 0 ? Math.round((passCount / passBasis.length) * 100) : 0,
+        avgEvacuationSec: averageRounded(evacuationValues),
+        avgSupervisorResponseSec: averageRounded(responseValues),
+        bestEvacuationSec: evacuationValues.length > 0 ? Math.min(...evacuationValues) : null,
+        worstEvacuationSec: evacuationValues.length > 0 ? Math.max(...evacuationValues) : null,
+        trendDirection,
+        trendDeltaSec,
+        recentAvgEvacuationSec,
+        previousAvgEvacuationSec,
+        zoneTrends,
+    };
+}
+
 export default function SupervisorDashboard() {
     const { currentUser, logout } = useAuth();
     const navigate = useNavigate();
@@ -242,6 +384,7 @@ export default function SupervisorDashboard() {
     const [drillError, setDrillError]         = useState('');
     const [drillResult, setDrillResult]       = useState(null);
     const [drillLogs, setDrillLogs]           = useState([]);
+    const [drillTrends, setDrillTrends]       = useState(() => deriveLocalDrillTrends([]));
     const [drillStartedAtMs, setDrillStartedAtMs] = useState(0);
     const [drillElapsedSec, setDrillElapsedSec]   = useState(0);
     const [drillAckSec, setDrillAckSec]           = useState(null);
@@ -286,7 +429,9 @@ export default function SupervisorDashboard() {
                 });
                 const data = await res.json();
                 if (!cancelled && data.success) {
-                    setDrillLogs(Array.isArray(data.logs) ? data.logs : []);
+                    const logs = Array.isArray(data.logs) ? data.logs : [];
+                    setDrillLogs(logs);
+                    setDrillTrends(data.trends || deriveLocalDrillTrends(logs));
                 }
             } catch {
                 // Drill history is optional context; keep UI usable if unavailable.
@@ -572,6 +717,11 @@ export default function SupervisorDashboard() {
             setDrillResult(drill);
             const startedMs = new Date(drill?.startedAt || Date.now()).getTime();
             setDrillStartedAtMs(Number.isFinite(startedMs) ? startedMs : Date.now());
+            setDrillLogs((prev) => {
+                const merged = [drill, ...prev.filter((item) => item.id !== drill.id)].slice(0, 30);
+                setDrillTrends(data.trends || deriveLocalDrillTrends(merged));
+                return merged;
+            });
             setDrillState('active');
         } catch (err) {
             setDrillState('error');
@@ -626,7 +776,11 @@ export default function SupervisorDashboard() {
             setDrillResult(completed);
             setDrillAckSec(Number.isFinite(completed.supervisorResponseSec) ? completed.supervisorResponseSec : supervisorResponseSec);
             setDrillState('completed');
-            setDrillLogs(prev => [completed, ...prev.filter(item => item.id !== completed.id)].slice(0, 30));
+            setDrillLogs((prev) => {
+                const merged = [completed, ...prev.filter((item) => item.id !== completed.id)].slice(0, 30);
+                setDrillTrends(data.trends || deriveLocalDrillTrends(merged));
+                return merged;
+            });
             setAlerts(prev => prev.filter(a => !(a.type === 'DRILL_SOS' && a.drillId === completed.id)));
         } catch (err) {
             setDrillState('error');
@@ -642,6 +796,10 @@ export default function SupervisorDashboard() {
     const simulationWorkers = workers.filter(w => w.status !== 'SOS');
     const simulationJobs = jobs;
     const activeDrillSos = alerts.find(a => a.type === 'DRILL_SOS') || null;
+    const currentDrillBadge = drillResult ? deriveLocalDrillBadge(drillResult) : null;
+    const slowestZoneTrend = Array.isArray(drillTrends?.zoneTrends) && drillTrends.zoneTrends.length > 0
+        ? drillTrends.zoneTrends[0]
+        : null;
 
     return (
         <div className="sd-root">
@@ -736,7 +894,16 @@ export default function SupervisorDashboard() {
                                         <span className="sd-drill-chip">Elapsed: {formatSeconds(drillState === 'completed' ? (drillResult.totalEvacuationSec || drillElapsedSec) : drillElapsedSec)}</span>
                                         <span className="sd-drill-chip">Supervisor response: {drillAckSec != null ? formatSeconds(drillAckSec) : 'pending'}</span>
                                         <span className="sd-drill-chip">Evacuation: {formatSeconds(drillResult.totalEvacuationSec)}</span>
+                                        {currentDrillBadge && (
+                                            <span className={`sd-drill-chip sd-drill-chip-result ${currentDrillBadge.status === 'PASS' ? 'pass' : 'fail'}`}>
+                                                Result: {currentDrillBadge.status}
+                                            </span>
+                                        )}
                                     </div>
+
+                                    {currentDrillBadge?.reason && (
+                                        <div className="sd-drill-result-note">{currentDrillBadge.reason}</div>
+                                    )}
 
                                     <div className="sd-drill-grid">
                                         <div className="sd-drill-card">
@@ -1369,30 +1536,102 @@ export default function SupervisorDashboard() {
                                     </div>
                                 )}
 
+                                <div className="sd-drill-trend-grid">
+                                    <div className="sd-drill-trend-card">
+                                        <div className="sd-drill-trend-label">Pass Rate</div>
+                                        <div className="sd-drill-trend-value">{drillTrends.passRatePct ?? 0}%</div>
+                                        <div className="sd-drill-trend-sub">
+                                            {drillTrends.completedRuns ?? 0} completed / {drillTrends.totalRuns ?? 0} total
+                                        </div>
+                                    </div>
+
+                                    <div className="sd-drill-trend-card">
+                                        <div className="sd-drill-trend-label">Avg Evacuation</div>
+                                        <div className="sd-drill-trend-value">
+                                            {Number.isFinite(drillTrends.avgEvacuationSec)
+                                                ? formatSeconds(drillTrends.avgEvacuationSec)
+                                                : '—'}
+                                        </div>
+                                        <div className="sd-drill-trend-sub">
+                                            Best {Number.isFinite(drillTrends.bestEvacuationSec) ? formatSeconds(drillTrends.bestEvacuationSec) : '—'}
+                                        </div>
+                                    </div>
+
+                                    <div className="sd-drill-trend-card">
+                                        <div className="sd-drill-trend-label">Avg Response</div>
+                                        <div className="sd-drill-trend-value">
+                                            {Number.isFinite(drillTrends.avgSupervisorResponseSec)
+                                                ? formatSeconds(drillTrends.avgSupervisorResponseSec)
+                                                : '—'}
+                                        </div>
+                                        <div className="sd-drill-trend-sub">
+                                            Target ≤ {formatSeconds(45)}
+                                        </div>
+                                    </div>
+
+                                    <div className={`sd-drill-trend-card sd-drill-trend-card-${drillTrends.trendDirection || 'steady'}`}>
+                                        <div className="sd-drill-trend-label">Trend</div>
+                                        <div className="sd-drill-trend-value">
+                                            {(drillTrends.trendDirection || 'steady').toUpperCase()}
+                                        </div>
+                                        <div className="sd-drill-trend-sub">
+                                            {Number.isFinite(drillTrends.trendDeltaSec)
+                                                ? `${drillTrends.trendDeltaSec > 0 ? '+' : ''}${drillTrends.trendDeltaSec}s vs previous window`
+                                                : 'Need at least 10 runs for comparison'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {slowestZoneTrend && (
+                                    <div className="sd-drill-zone-trends">
+                                        <div className="sd-drill-zone-trends-title">Zone Trend Watch</div>
+                                        <div className="sd-drill-zone-trends-list">
+                                            {(drillTrends.zoneTrends || []).slice(0, 3).map((zone) => (
+                                                <div key={`zone-trend-${zone.zone}`} className="sd-drill-zone-trend-item">
+                                                    <strong>{zone.zone}</strong>
+                                                    <span>{zone.runs} runs</span>
+                                                    <span>{zone.passRatePct}% pass</span>
+                                                    <span>
+                                                        Avg {Number.isFinite(zone.avgEvacuationSec)
+                                                            ? formatSeconds(zone.avgEvacuationSec)
+                                                            : '—'}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {drillLogs.length === 0 ? (
                                     <div className="sd-empty-state">
                                         <Clock size={28} />
                                         <p>No drill runs yet. Start one to test evacuation readiness.</p>
                                     </div>
-                                ) : drillLogs.map((log) => (
-                                    <button key={log.id} className="sd-drill-log-card" onClick={() => openDrillFromLog(log)}>
-                                        <div className="sd-drill-log-top">
-                                            <strong>{log.logLine || 'Evacuation drill completed'}</strong>
-                                            <span>{log.simulatedZone || 'Zone N/A'}</span>
-                                        </div>
-                                        <div className="sd-drill-log-meta">
-                                            <span>Evacuation: {formatSeconds(log.totalEvacuationSec)}</span>
-                                            <span>
-                                                Response: {Number.isFinite(log.supervisorResponseSec)
-                                                    ? formatSeconds(log.supervisorResponseSec)
-                                                    : 'pending'}
-                                            </span>
-                                        </div>
-                                        {Array.isArray(log.feedback) && log.feedback.length > 0 && (
-                                            <p className="sd-drill-log-feedback">{log.feedback[0]}</p>
-                                        )}
-                                    </button>
-                                ))}
+                                ) : drillLogs.map((log) => {
+                                    const logBadge = deriveLocalDrillBadge(log);
+                                    return (
+                                        <button key={log.id} className="sd-drill-log-card" onClick={() => openDrillFromLog(log)}>
+                                            <div className="sd-drill-log-top">
+                                                <strong>{log.logLine || 'Evacuation drill completed'}</strong>
+                                                <span>{log.simulatedZone || 'Zone N/A'}</span>
+                                            </div>
+                                            <div className="sd-drill-log-meta">
+                                                <span>Evacuation: {formatSeconds(log.totalEvacuationSec)}</span>
+                                                <span>
+                                                    Response: {Number.isFinite(log.supervisorResponseSec)
+                                                        ? formatSeconds(log.supervisorResponseSec)
+                                                        : 'pending'}
+                                                </span>
+                                                <span className={`sd-drill-log-badge ${logBadge.status === 'PASS' ? 'pass' : 'fail'}`}>
+                                                    {logBadge.status}
+                                                </span>
+                                            </div>
+                                            {Array.isArray(log.feedback) && log.feedback.length > 0 && (
+                                                <p className="sd-drill-log-feedback">{log.feedback[0]}</p>
+                                            )}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         )}
 
