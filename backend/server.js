@@ -9,6 +9,7 @@ const path = require('path');
 const workersRouter = require('./routes/workers');
 const jobsRouter    = require('./routes/jobs');
 const alertsRouter  = require('./routes/alerts');
+const whatsappRouter = require('./routes/whatsapp');
 const engine        = require('./sensors/engine');
 const { workers, jobs } = require('./data/seed');
 const simulator     = require('./sensors/simulator');
@@ -22,6 +23,7 @@ const { getWardIntelligence }                = require('./controllers/wardIntell
 const { getPlanCopilot }                     = require('./controllers/planCopilot');
 const { buildRcaAssistant }                  = require('./controllers/rcaAssistant');
 const { buildEvacuationDrill }               = require('./controllers/evacuationDrill');
+const { sendSosToSupervisors }               = require('./controllers/whatsapp');
 
 const PORT             = 3001;
 const FRONTEND_ORIGINS = ['http://localhost:5173', 'http://localhost:5174'];
@@ -33,6 +35,7 @@ app.use(express.json());
 app.use('/api/workers', workersRouter);
 app.use('/api/jobs',    jobsRouter);
 app.use('/api/alerts',  alertsRouter);
+app.use('/api/whatsapp', whatsappRouter);
 
 const INCIDENT_HISTORY_LIMIT = 250;
 const incidentHistory = [
@@ -426,6 +429,26 @@ io.on('connection', (socket) => {
       hazard: '',
       alertMessage: `Manual SOS triggered by ${data.workerName || worker?.name || `Worker ${data.workerId}`}`,
     };
+
+    sendSosToSupervisors({
+      workerName: incidentContext.workerName,
+      workerId: incidentContext.workerId,
+      jobId: worker?.job || null,
+      zone: incidentContext.zone,
+      location: incidentContext.location,
+      reason: data?.reason || 'manual',
+      triggeredAt: incidentContext.eventTime,
+    })
+      .then((result) => {
+        if (result.success) {
+          console.log(`[WhatsApp] SOS alert sent to ${result.successCount}/${result.recipients.length} supervisor number(s)`);
+        } else {
+          console.warn(`[WhatsApp] SOS alert not sent: ${result.error || 'No successful deliveries'}`);
+        }
+      })
+      .catch((err) => {
+        console.error('[WhatsApp] SOS send failed:', err.message);
+      });
 
     rememberIncident(incidentContext);
     emitIncidentPostmortem(incidentContext);
