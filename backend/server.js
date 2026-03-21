@@ -24,6 +24,7 @@ const { getPlanCopilot }                     = require('./controllers/planCopilo
 const { buildRcaAssistant }                  = require('./controllers/rcaAssistant');
 const { buildEvacuationDrill }               = require('./controllers/evacuationDrill');
 const { sendSosToSupervisors }               = require('./controllers/whatsapp');
+const { generateAiAuditChart }               = require('./controllers/chartGenerator');
 
 const PORT             = 3001;
 const FRONTEND_ORIGINS = ['http://localhost:5173', 'http://localhost:5174'];
@@ -803,6 +804,22 @@ app.post('/api/ai/ward-intelligence', async (req, res) => {
     res.status(400).json({
       success: false,
       error: err.message || 'Failed to generate ward analysis',
+    });
+  }
+});
+
+// POST /api/ai/chart-generate
+// Body: { question: string, auditRows: AuditRow[], lang?: 'hi'|'en' }
+// Generates Recharts-ready chart config from audit logs using AI (with safe fallback).
+app.post('/api/ai/chart-generate', async (req, res) => {
+  try {
+    const result = await generateAiAuditChart(req.body ?? {});
+    res.json(result);
+  } catch (err) {
+    console.error('[AI Chart] Error:', err.message);
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Failed to generate AI chart',
     });
   }
 });

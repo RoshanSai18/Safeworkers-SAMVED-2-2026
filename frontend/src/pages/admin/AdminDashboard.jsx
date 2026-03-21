@@ -447,8 +447,14 @@ export default function AdminDashboard() {
     const [dsExpanded,       setDsExpanded]       = useState(false);
     const [aiStates,         setAiStates]         = useState({});
     const [speakState,       setSpeakState]       = useState({ ward: null });
+    const [aiChartQuery,     setAiChartQuery]     = useState('Show PPE and gas compliance by zone');
+    const [aiChartResult,    setAiChartResult]    = useState(null);
+    const [aiChartLoading,   setAiChartLoading]   = useState(false);
+    const [aiChartError,     setAiChartError]     = useState('');
+    const [showAiChartBuilder, setShowAiChartBuilder] = useState(false);
     const typingRefs = useRef({});
     const planCopilotTypingRef = useRef(null);
+    const aiChartPanelRef = useRef(null);
 
     useEffect(() => {
         const refs = typingRefs.current;
@@ -657,6 +663,98 @@ export default function AdminDashboard() {
         () => [...liveIncidents, ...INCIDENTS],
         [liveIncidents]
     );
+
+    useEffect(() => {
+        if (!showAiChartBuilder) return;
+        const timer = setTimeout(() => {
+            aiChartPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
+        return () => clearTimeout(timer);
+    }, [showAiChartBuilder]);
+
+    const generateAiChart = async () => {
+        const question = aiChartQuery.trim();
+        if (!question) return;
+
+        setAiChartLoading(true);
+        setAiChartError('');
+
+        try {
+            const res = await fetch('http://localhost:3001/api/ai/chart-generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question,
+                    lang: 'en',
+                    auditRows: filteredLog,
+                }),
+                signal: AbortSignal.timeout(30000),
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || 'Failed to generate AI chart');
+            }
+
+            setAiChartResult(data);
+        } catch (err) {
+            setAiChartError(err.message || 'Failed to generate AI chart');
+        } finally {
+            setAiChartLoading(false);
+        }
+    };
+
+    const renderAiChart = () => {
+        const chart = aiChartResult?.chart;
+        if (!chart || !Array.isArray(chart.data) || chart.data.length === 0) {
+            return <div className="ad-ai-chart-empty">Ask a question to generate a chart from current audit log data.</div>;
+        }
+
+        if (chart.chartType === 'LineChart') {
+            return (
+                <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={chart.data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                        <XAxis dataKey={chart.xKey} tick={{ fontSize: 12, fill: 'var(--color-text-muted)' }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 12, fill: 'var(--color-text-muted)' }} axisLine={false} tickLine={false} />
+                        <Tooltip contentStyle={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, fontSize: 13 }} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        {(chart.series || []).map((s) => (
+                            <Line
+                                key={s.key}
+                                dataKey={s.key}
+                                stroke={s.color || '#111827'}
+                                strokeWidth={2.5}
+                                dot={{ r: 3, fill: s.color || '#111827' }}
+                                name={s.label || s.key}
+                            />
+                        ))}
+                    </LineChart>
+                </ResponsiveContainer>
+            );
+        }
+
+        return (
+            <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={chart.data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                    <XAxis dataKey={chart.xKey} tick={{ fontSize: 12, fill: 'var(--color-text-muted)' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 12, fill: 'var(--color-text-muted)' }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 10, fontSize: 13 }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {(chart.series || []).map((s) => (
+                        <Bar
+                            key={s.key}
+                            dataKey={s.key}
+                            fill={s.color || '#111827'}
+                            radius={[4, 4, 0, 0]}
+                            name={s.label || s.key}
+                        />
+                    ))}
+                </BarChart>
+            </ResponsiveContainer>
+        );
+    };
 
     return (
         <div className="ad-root">
@@ -921,9 +1019,17 @@ export default function AdminDashboard() {
                             </button>
                         </div>
                         {activeTab === 'audit' && (
-                            <button className="ad-export-btn" onClick={() => exportCSV(filteredLog)}>
-                                <Download size={14}/> Export CSV
-                            </button>
+                            <div className="ad-audit-actions">
+                                <button className="ad-export-btn" onClick={() => exportCSV(filteredLog)}>
+                                    <Download size={14}/> Export CSV
+                                </button>
+                                <button
+                                    className={`ad-export-btn ${showAiChartBuilder ? 'is-active' : ''}`}
+                                    onClick={() => setShowAiChartBuilder((v) => !v)}
+                                >
+                                    <Zap size={14}/> AI Chart
+                                </button>
+                            </div>
                         )}
                     </div>
 
@@ -948,6 +1054,42 @@ export default function AdminDashboard() {
                                 </div>
                                 <div className="ad-result-count">{filteredLog.length} records</div>
                             </div>
+
+                            <div
+                                ref={aiChartPanelRef}
+                                className={`ad-ai-chart-inline ${showAiChartBuilder ? 'open' : 'closed'}`}
+                                aria-hidden={!showAiChartBuilder}
+                            >
+                                <div className="ad-ai-chart-inner">
+                                    <div className="ad-ai-chart-inline-title">AI Chart Builder (Audit Logs)</div>
+                                    <div className="ad-ai-chart-controls">
+                                        <input
+                                            className="ad-ai-chart-input"
+                                            value={aiChartQuery}
+                                            onChange={(e) => setAiChartQuery(e.target.value)}
+                                            placeholder="Example: Show daily PPE trend for the selected logs"
+                                        />
+                                        <button
+                                            className="ad-export-btn"
+                                            onClick={generateAiChart}
+                                            disabled={aiChartLoading || filteredLog.length === 0}
+                                        >
+                                            {aiChartLoading ? 'Generating...' : 'Generate Chart'}
+                                        </button>
+                                    </div>
+                                    {aiChartError && <div className="ad-ai-chart-error">{aiChartError}</div>}
+                                    <div className="ad-ai-chart-canvas">
+                                        {renderAiChart()}
+                                    </div>
+                                    {aiChartResult?.chart?.insight && (
+                                        <div className="ad-ai-chart-insight">
+                                            <strong>AI Insight:</strong> {aiChartResult.chart.insight}
+                                            <span className="ad-ai-source">Source: {aiChartResult.source === 'ai' ? 'Gemini' : 'Fallback'}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
                             <div className="ad-table-wrap">
                                 <table className="ad-table">
                                     <thead>
