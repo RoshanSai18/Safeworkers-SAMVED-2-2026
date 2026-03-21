@@ -3,7 +3,7 @@ import {
     LogOut, Camera, Wind, CheckCircle2, AlertTriangle,
     ChevronRight, X, Lock, Shield, Clock, Flame,
     Droplets, ZapOff, TriangleAlert, CircleAlert,
-    Ruler, User, Calendar, Volume2, Wifi, WifiOff,
+    Ruler, User, Calendar, Volume2, Pause, Wifi, WifiOff,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -105,17 +105,6 @@ function playChime(type = 'ok') {
 }
 
 const vibrate = (pattern) => { try { navigator.vibrate?.(pattern); } catch (e) { void e; } };
-
-/* Safety Co-Pilot — TTS in Hindi */
-function speak(text) {
-    try {
-        window.speechSynthesis.cancel(); // stop any previous utterance
-        const msg = new SpeechSynthesisUtterance(text);
-        msg.lang  = 'hi-IN';
-        msg.rate  = 0.9;
-        window.speechSynthesis.speak(msg);
-    } catch (e) { void e; }
-}
 
 /* Safety Co-Pilot — local risk evaluation (mirrors backend evaluateRisk.js).
    Runs instantly on the client so the card appears even without a live socket. */
@@ -519,6 +508,7 @@ export default function WorkerDashboard() {
     const [networkOnline, setNetworkOnline] = useState(() => navigator.onLine);
     const [offlineReports, setOfflineReports] = useState(() => loadOfflineQueue());
     const [syncMessage, setSyncMessage] = useState('');
+    const [speechState, setSpeechState] = useState('idle'); // idle | speaking | paused
 
     const { socket, connected } = useSocket();
 
@@ -526,6 +516,41 @@ export default function WorkerDashboard() {
 
     const realtimeAvailable = Boolean(socket && connected && networkOnline);
     const pendingOfflineCount = offlineReports.length;
+
+    const speakAdvisory = useCallback((text) => {
+        if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
+        try {
+            window.speechSynthesis.cancel();
+            const msg = new SpeechSynthesisUtterance(text);
+            msg.lang = 'hi-IN';
+            msg.rate = 0.9;
+            msg.onstart = () => setSpeechState('speaking');
+            msg.onend = () => setSpeechState('idle');
+            msg.onerror = () => setSpeechState('idle');
+            window.speechSynthesis.speak(msg);
+        } catch {
+            setSpeechState('idle');
+        }
+    }, []);
+
+    const toggleAdvisorySpeech = useCallback((text) => {
+        const synth = window.speechSynthesis;
+        if (!synth) return;
+
+        if (speechState === 'speaking' && !synth.paused) {
+            synth.pause();
+            setSpeechState('paused');
+            return;
+        }
+
+        if (speechState === 'paused' || synth.paused) {
+            synth.resume();
+            setSpeechState('speaking');
+            return;
+        }
+
+        speakAdvisory(text);
+    }, [speechState, speakAdvisory]);
 
     const queueOfflineReport = useCallback((eventType, payload) => {
         setOfflineReports((prev) => [...prev, makeOfflineQueueItem(eventType, payload)]);
@@ -598,6 +623,16 @@ export default function WorkerDashboard() {
         const timer = setTimeout(() => setSyncMessage(''), 4500);
         return () => clearTimeout(timer);
     }, [syncMessage]);
+
+    useEffect(() => {
+        return () => {
+            try {
+                window.speechSynthesis?.cancel();
+            } catch {
+                // no-op
+            }
+        };
+    }, []);
 
     // Manhole countdown
     useEffect(() => {
@@ -691,7 +726,6 @@ export default function WorkerDashboard() {
             if (normalized.priority === 'high') {
                 playChime('sos');
                 vibrate([100, 50, 200]);
-                speak(buildAdvisorySpeechText(normalized));
             }
         };
 
@@ -1060,11 +1094,11 @@ export default function WorkerDashboard() {
                                     <div className="wd-copilot-actions">
                                         <button
                                             className="wd-copilot-speak-btn"
-                                            onClick={() => speak(buildAdvisorySpeechText(advisory))}
-                                            aria-label="सलाह सुनें"
-                                            title="Read aloud in Hindi"
+                                            onClick={() => toggleAdvisorySpeech(buildAdvisorySpeechText(advisory))}
+                                            aria-label={speechState === 'speaking' ? 'सलाह रोकें' : 'सलाह सुनें'}
+                                            title={speechState === 'speaking' ? 'Pause Hindi advisory' : 'Read aloud in Hindi'}
                                         >
-                                            <Volume2 size={20} />
+                                            {speechState === 'speaking' ? <Pause size={20} /> : <Volume2 size={20} />}
                                         </button>
                                         <button
                                             className="wd-copilot-close-btn"
